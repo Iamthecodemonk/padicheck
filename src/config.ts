@@ -18,7 +18,20 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env) {
     throw new Error('LOG_LEVEL is invalid');
   }
 
-  return { nodeEnv, port, host, logLevel };
+  const databaseUrl = env.DATABASE_URL;
+  if (!databaseUrl) throw new Error('DATABASE_URL is required');
+  try {
+    const url = new URL(databaseUrl);
+    if (!['postgres:', 'postgresql:'].includes(url.protocol)) throw new Error();
+  } catch {
+    throw new Error('DATABASE_URL must be a PostgreSQL connection string');
+  }
+  const jwtSecret = env.JWT_SECRET;
+  if (!jwtSecret || Buffer.byteLength(jwtSecret) < 32) {
+    throw new Error('JWT_SECRET must contain at least 32 bytes');
+  }
+
+  return { nodeEnv, port, host, logLevel, databaseUrl, jwtSecret };
 }
 
 export type AppConfig = ReturnType<typeof loadConfig>;
