@@ -31,7 +31,25 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env) {
     throw new Error('JWT_SECRET must contain at least 32 bytes');
   }
 
-  return { nodeEnv, port, host, logLevel, databaseUrl, jwtSecret };
+  const redisUrl = env.REDIS_URL || undefined;
+  if (redisUrl) {
+    try { if (!['redis:', 'rediss:'].includes(new URL(redisUrl).protocol)) throw new Error(); }
+    catch { throw new Error('REDIS_URL must be a Redis connection string'); }
+  }
+  if (nodeEnv === 'production' && !redisUrl) throw new Error('REDIS_URL is required in production for shared token revocation');
+  const cloudinaryValues = [env.CLOUDINARY_CLOUD_NAME, env.CLOUDINARY_API_KEY, env.CLOUDINARY_API_SECRET];
+  if (cloudinaryValues.some(Boolean) && !cloudinaryValues.every(Boolean)) {
+    throw new Error('Set all three Cloudinary environment variables or leave all unset');
+  }
+  const cloudinary = cloudinaryValues.every(Boolean) ? {
+    cloudName: env.CLOUDINARY_CLOUD_NAME!, apiKey: env.CLOUDINARY_API_KEY!, apiSecret: env.CLOUDINARY_API_SECRET!,
+  } : undefined;
+  if (cloudinary && !/^[a-z0-9_-]+$/i.test(cloudinary.cloudName)) throw new Error('Invalid CLOUDINARY_CLOUD_NAME');
+  const uploadMaxBytes = Number(env.MEDIA_MAX_BYTES ?? 10 * 1024 * 1024);
+  if (!Number.isSafeInteger(uploadMaxBytes) || uploadMaxBytes < 1 || uploadMaxBytes > 25 * 1024 * 1024) {
+    throw new Error('MEDIA_MAX_BYTES must be an integer between 1 and 26214400');
+  }
+  return { nodeEnv, port, host, logLevel, databaseUrl, jwtSecret, redisUrl, cloudinary, uploadMaxBytes };
 }
 
 export type AppConfig = ReturnType<typeof loadConfig>;

@@ -3,6 +3,9 @@ import type { Database } from '../../database/index.js';
 import type { Authorization } from '../authorization/index.js';
 import { ApiError } from '../../errors.js';
 import { hashPassword, verifyPassword } from './password.js';
+import { randomUUID } from 'node:crypto';
+import type { TokenRevocations } from './revocations.js';
+import { tokenDigest } from '../authorization/index.js';
 
 type Credentials = { email: string; password: string };
 type Registration = Credentials & { display_name: string };
@@ -12,13 +15,13 @@ const credentialsProperties = {
   password: { type: 'string', minLength: 12, maxLength: 128 },
 };
 
-export async function authRoutes(app: FastifyInstance, db: Database, access: Authorization) {
+export async function authRoutes(app: FastifyInstance, db: Database, access: Authorization, revocations: TokenRevocations) {
   // Used for missing accounts so login also performs expensive password work.
   const dummyHash = await hashPassword('unused dummy login credential');
   const authLimit = { rateLimit: { max: 10, timeWindow: '1 minute' } };
   const tokenFor = (user: User) => ({
     user: { users_id: user.users_id, display_name: user.display_name, email: user.email },
-    access_token: app.jwt.sign({ sub: user.users_id }),
+    access_token: app.jwt.sign({ sub: user.users_id, jti: randomUUID() }),
     token_type: 'Bearer', expires_in: 900,
   });
 
@@ -82,5 +85,11 @@ export async function authRoutes(app: FastifyInstance, db: Database, access: Aut
   app.get('/v1/auth/me', { preHandler: access.authenticate }, async (request, reply) => {
     reply.header('Cache-Control', 'no-store');
     return { user: request.principal };
+  });
+
+  app.post('/v1/auth/logout', { preHandler: access.authenticate }, async (request, reply) => {
+    await revocations.revoke(tokenDigest(request), request.user.exp);
+    reply.header('Cache-Control', 'no-store');
+    return reply.code(204).send();
   });
 }

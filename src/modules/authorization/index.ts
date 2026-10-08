@@ -1,11 +1,13 @@
 import type { FastifyInstance, FastifyRequest } from 'fastify';
 import type { Database } from '../../database/index.js';
 import { ApiError } from '../../errors.js';
+import { createHash } from 'node:crypto';
+import type { TokenRevocations } from '../auth/revocations.js';
 
 declare module '@fastify/jwt' {
   interface FastifyJWT {
-    payload: { sub: string };
-    user: { sub: string };
+    payload: { sub: string; jti?: string };
+    user: { sub: string; jti?: string; exp: number };
   }
 }
 
@@ -21,7 +23,7 @@ declare module 'fastify' {
   interface FastifyRequest { principal: Principal | null }
 }
 
-export function authorization(app: FastifyInstance, db: Database) {
+export function authorization(app: FastifyInstance, db: Database, revocations: TokenRevocations) {
   app.decorateRequest('principal', null);
 
   async function authenticate(request: FastifyRequest) {
@@ -30,9 +32,11 @@ export function authorization(app: FastifyInstance, db: Database) {
     } catch {
       throw new ApiError(401, 'unauthorized', 'A valid access token is required');
     }
-    if (!/^[a-f0-9-]{36}$/i.test(request.user.sub ?? '')) {
+    if (!/^[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}$/i.test(request.user.sub ?? '') ||
+        !Number.isSafeInteger(request.user.exp)) {
       throw new ApiError(401, 'unauthorized', 'Invalid access token subject');
     }
+    if (await revocations.has(tokenDigest(request))) throw new ApiError(401, 'unauthorized', 'Access token has been revoked');
     const result = await db.query<Principal>(`
       SELECT u.users_id, u.display_name, u.email,
         COALESCE(array_agg(DISTINCT r.role_key) FILTER (WHERE r.role_key IS NOT NULL), '{}') AS roles,
@@ -65,3 +69,8 @@ export function authorization(app: FastifyInstance, db: Database) {
 }
 
 export type Authorization = ReturnType<typeof authorization>;
+
+export function tokenDigest(request: FastifyRequest): string {
+  const token = request.headers.authorization?.replace(/^Bearer\s+/i, '') ?? '';
+  return createHash('sha256').update(token).digest('hex');
+}

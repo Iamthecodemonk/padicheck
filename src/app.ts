@@ -7,8 +7,14 @@ import { ApiError } from './errors.js';
 import { authorization } from './modules/authorization/index.js';
 import { authRoutes } from './modules/auth/routes.js';
 import { adminRoutes } from './modules/admin/routes.js';
+import multipart from '@fastify/multipart';
+import { memoryRevocations, redisRevocations, type TokenRevocations } from './modules/auth/revocations.js';
+import { cloudinaryStorage } from './adapters/cloudinary.js';
+import { mediaRoutes } from './modules/media/routes.js';
+import type { MediaStorage } from './modules/media/types.js';
 
-export function buildApp(config: AppConfig, database?: Database) {
+export function buildApp(config: AppConfig, database?: Database,
+  dependencies: { storage?: MediaStorage; revocations?: TokenRevocations } = {}) {
   const app = Fastify({
     logger: {
       level: config.logLevel,
@@ -26,6 +32,9 @@ export function buildApp(config: AppConfig, database?: Database) {
 
   const db = database ?? createDatabase(config.databaseUrl);
   if (!database) app.addHook('onClose', async () => db.close());
+  const revocations = dependencies.revocations ?? (config.redisUrl ? redisRevocations(config.redisUrl) : memoryRevocations());
+  if (!dependencies.revocations) app.addHook('onClose', async () => revocations.close());
+  const storage = dependencies.storage ?? (config.cloudinary ? cloudinaryStorage(config.cloudinary) : undefined);
 
   app.setErrorHandler((error, request, reply) => {
     if (error instanceof ApiError) {
@@ -45,7 +54,12 @@ export function buildApp(config: AppConfig, database?: Database) {
 
   app.get('/ready', async (_request, reply) => {
     try {
-      await db.query('SELECT 1 FROM users LIMIT 0');
+      await db.query(`SELECT u.users_id, a.auth_account_id, r.role_id, ur.users_id,
+        p.permission_id, rp.role_id, m.provider_asset_id, m.provider_public_id,
+        m.provider_resource_type, m.provider_delivery_type, m.provider_version, m.upload_status
+        FROM users u, user_auth_accounts a, roles r, user_roles ur,
+        permissions p, role_permissions rp, media_files m LIMIT 0`);
+      await revocations.ping();
       return { status: 'ready' };
     } catch {
       return reply.code(503).send({ status: 'unavailable' });
@@ -59,9 +73,11 @@ export function buildApp(config: AppConfig, database?: Database) {
       verify: { algorithms: ['HS256'], allowedIss: 'padicheck', allowedAud: 'padicheck-api' },
     });
     await api.register(rateLimit, { global: false });
-    const access = authorization(api, db);
-    await authRoutes(api, db, access);
+    await api.register(multipart, { limits: { files: 1, fields: 0, parts: 1, fileSize: config.uploadMaxBytes } });
+    const access = authorization(api, db, revocations);
+    await authRoutes(api, db, access, revocations);
     await adminRoutes(api, db, access);
+    await mediaRoutes(api, db, access, storage, config.uploadMaxBytes);
   });
 
   return app;
