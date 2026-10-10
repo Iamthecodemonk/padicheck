@@ -7,9 +7,14 @@ import pg from 'pg';
 // introduce a migration-history table into the supplied data model.
 if (!process.env.DATABASE_URL) throw new Error('DATABASE_URL is required');
 const pool = new pg.Pool({ connectionString: process.env.DATABASE_URL, connectionTimeoutMillis: 5000 });
-const client = await pool.connect();
+let client: pg.PoolClient | undefined;
+let locked = false;
 try {
+  client = await pool.connect();
+  await client.query("SET lock_timeout = '5s'");
+  await client.query("SET statement_timeout = '30s'");
   await client.query('SELECT pg_advisory_lock($1)', [721934201]);
+  locked = true;
   const existing = await client.query(
     "SELECT tablename FROM pg_tables WHERE schemaname = 'public' LIMIT 1",
   );
@@ -20,10 +25,12 @@ try {
   await client.query(sql);
   console.log('Applied 001_baseline.sql without schema modifications.');
 } catch (error) {
-  await client.query('ROLLBACK');
+  if (client) await client.query('ROLLBACK');
   throw error;
 } finally {
-  await client.query('SELECT pg_advisory_unlock($1)', [721934201]);
-  client.release();
+  if (client) {
+    if (locked) await client.query('SELECT pg_advisory_unlock($1)', [721934201]);
+    client.release();
+  }
   await pool.end();
 }

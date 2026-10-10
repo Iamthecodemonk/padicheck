@@ -165,7 +165,7 @@ test('legacy alignment proposal refuses data loss and restores expected schema w
     await postgres.exec('DELETE FROM users');
     await postgres.exec(proposal);
     assert.deepEqual((await postgres.query(columns)).rows, expected);
-    const indexes = (await postgres.query("SELECT indexname FROM pg_indexes WHERE tablename = 'media_files'")).rows.map(row => row.indexname);
+    const indexes = (await postgres.query<{ indexname: string }>("SELECT indexname FROM pg_indexes WHERE tablename = 'media_files'")).rows.map(row => row.indexname);
     assert.ok(indexes.includes('uq_media_provider_public_id'));
     assert.ok(!indexes.includes('media_files_storage_key_key'));
     const references = await postgres.query("SELECT conname FROM pg_constraint WHERE conrelid = 'model_runs'::regclass AND contype = 'f'");

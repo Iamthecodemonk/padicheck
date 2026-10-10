@@ -6,6 +6,8 @@ import { loadConfig } from '../src/config.js';
 import type { MediaStorage, UploadSpec } from '../src/modules/media/types.js';
 import { cloudinaryStorage } from '../src/adapters/cloudinary.js';
 import { testDatabase } from './support/database.js';
+import { Writable } from 'node:stream';
+import { v2 as cloudinary } from 'cloudinary';
 
 const config = loadConfig({ NODE_ENV: 'test', LOG_LEVEL: 'silent', DATABASE_URL: 'postgres://unused:unused@localhost/test',
   JWT_SECRET: 'test-secret-32-bytes-minimum-long-value', MEDIA_MAX_BYTES: '1024' });
@@ -67,7 +69,7 @@ test('media upload and access integration against the supplied schema', async t 
       assert.equal(media.upload_status, 'ready');
       assert.equal(media.provider_public_id, uploaded[0]!.publicId);
       assert.ok(media.provider_asset_id);
-      assert.equal(media.provider_version, '123');
+      assert.equal(Number(media.provider_version), 123);
       assert.equal(media.provider_delivery_type, 'authenticated');
       assert.equal(media.visibility, 'private');
       assert.equal(media.provider_resource_type, 'image');
@@ -184,4 +186,39 @@ test('Cloudinary delivery URL is signed, expiring, and contains no API secret', 
     assert.ok(url.searchParams.get('signature'));
     assert.ok(!url.toString().includes('test-secret-that-must-stay-server-side'));
   }
+});
+
+test('Cloudinary adapter sends authenticated upload options and handles SDK errors', async t => {
+  const storage = cloudinaryStorage({ cloudName: 'test-cloud', apiKey: '123', apiSecret: 'server-only-secret' });
+  const spec: UploadSpec = { publicId: 'folder/file.pdf', resourceType: 'raw', bytes: 3 };
+  let uploaded: Buffer | undefined;
+  let failed = false;
+  t.mock.method(cloudinary.uploader, 'upload_stream', (options: Record<string, unknown>, callback: (error: unknown, value?: unknown) => void) => {
+    assert.equal(options.type, 'authenticated');
+    assert.equal(options.resource_type, 'raw');
+    assert.equal(options.public_id, spec.publicId);
+    assert.equal(options.overwrite, false);
+    assert.equal(options.api_secret, 'server-only-secret');
+    return new Writable({
+      write(chunk, _encoding, next) { uploaded = Buffer.from(chunk); next(); },
+      final(next) { callback(failed ? new Error('SDK rejected upload') : null, { asset_id: 'provider-asset' }); next(); },
+    });
+  });
+  assert.deepEqual(await storage.upload(Buffer.from('pdf'), spec), { asset_id: 'provider-asset' });
+  assert.equal(uploaded!.toString(), 'pdf');
+  failed = true;
+  await assert.rejects(storage.upload(Buffer.from('pdf'), spec), /SDK rejected upload/);
+  let deletionResult = 'ok';
+  t.mock.method(cloudinary.uploader, 'destroy', async (publicId: string, options: Record<string, unknown>) => {
+    assert.equal(publicId, spec.publicId);
+    assert.equal(options.type, 'authenticated');
+    assert.equal(options.resource_type, 'raw');
+    assert.equal(options.invalidate, true);
+    return { result: deletionResult };
+  });
+  await storage.destroy(spec.publicId, 'raw');
+  deletionResult = 'not found';
+  await storage.destroy(spec.publicId, 'raw');
+  deletionResult = 'unexpected';
+  await assert.rejects(storage.destroy(spec.publicId, 'raw'), /deletion failed/);
 });

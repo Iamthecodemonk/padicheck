@@ -47,10 +47,13 @@ try {
     assert.ok(me.json().user.permissions.includes('investigations.create'));
     assert.equal((await app.inject({ method: 'GET', url: '/v1/admin/roles', headers })).statusCode, 403);
     assert.equal((await app.inject('/ready')).statusCode, 200);
+    const logout = await app.inject({ method: 'POST', url: '/v1/auth/logout', headers });
+    assert.equal(logout.statusCode, 204, 'Logout failed');
+    assert.equal((await app.inject({ method: 'GET', url: '/v1/auth/me', headers })).statusCode, 401, 'Logged-out token remained valid');
   } finally {
     await app.close();
   }
-  console.log('Live PostgreSQL registration, login, default role, RBAC denial, and readiness checks passed.');
+  console.log('Live PostgreSQL registration, login, logout, default role, RBAC denial, and readiness checks passed.');
 } finally {
   if (client) {
     await client.query('ROLLBACK');

@@ -4,6 +4,7 @@ import { buildApp } from '../src/app.js';
 import { loadConfig } from '../src/config.js';
 import { memoryRevocations } from '../src/modules/auth/revocations.js';
 import { testDatabase } from './support/database.js';
+import { ApiError } from '../src/errors.js';
 
 const config = loadConfig({ NODE_ENV: 'test', LOG_LEVEL: 'silent', DATABASE_URL: 'postgres://unused:unused@localhost/test',
   JWT_SECRET: 'test-secret-32-bytes-minimum-long-value' });
@@ -28,6 +29,19 @@ test('logout revokes only the submitted token across instances sharing a store',
     assert.equal((await second.inject({ method: 'GET', url: '/v1/auth/me', headers })).statusCode, 401);
     assert.equal((await second.inject({ method: 'GET', url: '/v1/auth/me', headers: { authorization: `Bearer ${secondToken}` } })).statusCode, 200);
     assert.equal((await app.inject({ method: 'POST', url: '/v1/auth/logout' })).statusCode, 401);
+    const activeHeaders = { authorization: `Bearer ${secondToken}` };
+    const originalRevoke = revocations.revoke;
+    revocations.revoke = async () => { throw new ApiError(503, 'auth_unavailable', 'Unavailable'); };
+    assert.equal((await second.inject({ method: 'POST', url: '/v1/auth/logout', headers: activeHeaders })).statusCode, 503);
+    revocations.revoke = originalRevoke;
+    assert.equal((await second.inject({ method: 'GET', url: '/v1/auth/me', headers: activeHeaders })).statusCode, 200);
+    const originalHas = revocations.has;
+    const originalPing = revocations.ping;
+    revocations.has = revocations.ping = async () => { throw new ApiError(503, 'auth_unavailable', 'Unavailable'); };
+    assert.equal((await second.inject({ method: 'GET', url: '/v1/auth/me', headers: activeHeaders })).statusCode, 503);
+    assert.equal((await second.inject('/ready')).statusCode, 503);
+    assert.equal((await second.inject('/health')).statusCode, 200);
+    revocations.has = originalHas; revocations.ping = originalPing;
   } finally { await app.close(); await second.close(); await revocations.close(); await db.close(); }
 });
 

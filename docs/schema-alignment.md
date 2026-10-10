@@ -56,11 +56,15 @@ constraints, indexes, and triggers; `database-drift.json` is now empty (`{}`).
   audit entry. No automatic elevation at registration.
 
 The schema has no session or refresh-token table. The current slice uses
-15-minute bearer access tokens, has no refresh or server-side logout endpoint,
+15-minute bearer access tokens with Redis-backed logout revocation (development
+can use an in-memory store), has no refresh endpoint,
 and checks suspension and changed permissions immediately. Google credentials
 are not configured, so Google sign-in remains pending.
 
-Redis workers, Cloudinary operations, investigations, evidence collection, AI
+Cloudinary media operations are now implemented using the supplied `media_files`
+columns; no schema change was needed. Uploaded bytes remain outside PostgreSQL.
+
+Background workers, investigations, evidence collection, AI
 adapters/routing, and AI configuration admin APIs remain later slices. Model
 runs support prompt versions but have no full prompt field; full prompt storage
 would require a separately proposed migration if it becomes necessary.

@@ -31,7 +31,7 @@ try {
   client = await pool.connect();
   await client.query('BEGIN READ ONLY');
   for (const [index, inspection] of inspections.entries()) {
-    const supplied = await expected.query(inspection);
+    const supplied = await expected.query<Record<string, unknown>>(inspection);
     const actual = await client.query(inspection);
     const category = ['columns', 'constraints', 'indexes', 'triggers'][index]!;
     const key = (row: Record<string, unknown>) => JSON.stringify([
