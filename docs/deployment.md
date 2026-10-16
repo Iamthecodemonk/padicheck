@@ -24,7 +24,7 @@ installed with `npm ci --omit=dev`. Never copy `.env` into a published artifact.
 Supply secrets through the host's protected environment/secret store. Preserve
 the private PDF worker's dependencies, including optional platform packages.
 
-The full preflight requires configured Redis, Cloudinary, UltraSearch and Gemini,
+The full preflight requires configured Redis, Cloudinary, UltraSearch, Gemini, SMTP and Google login,
 `RESEARCH_ENABLED=true`, and a usable AI registry. If deploying a deliberately
 limited API with research disabled, use the normal preflight, inspect its explicit
 `unconfigured`/`disabled` results, and treat those features as unavailable.
@@ -40,6 +40,8 @@ Start from `.env.example` without copying real secrets into source control.
 | `DATABASE_URL` | Dedicated PostgreSQL connection; use the database provider's authenticated/TLS connection settings |
 | `REDIS_URL` | Shared Redis for token revocation and BullMQ; required in production and for every worker |
 | `JWT_SECRET` | At least 32 bytes from a secure random generator; keep consistent across API replicas |
+| `SMTP_HOST`, `SMTP_FROM`, `SMTP_PORT`, `SMTP_SECURE`, `SMTP_USER`, `SMTP_PASSWORD` | SMTP configuration for OTP signup; see the authentication guide |
+| `GOOGLE_CLIENT_ID` | Web OAuth client ID for Google ID-token login/linking; no client secret required |
 | `CLOUDINARY_CLOUD_NAME`, `CLOUDINARY_API_KEY`, `CLOUDINARY_API_SECRET` | All three or none; missing storage keeps media routes unavailable |
 | `RESEARCH_ENABLED` | Explicit `true` or `false`; default false |
 | `ULTRASEARCH_URL`, `GEMINI_API_KEY` | Required for enabled production/worker research |
@@ -171,6 +173,8 @@ check. The command has an overall 180-second bound.
 | UltraSearch | One fixed `example.com` search, `limit=1`, `ai_mode=none`, `content=false`; no user records or document content sent |
 | Gemini | `models.list` metadata; when research is enabled, `models.get` for registered routes and generation-method checks; no inference |
 | Registry | Current enabled routes, tool access and expected secret references |
+| SMTP | TLS connection/authentication verification; no message is sent |
+| Google | Public OIDC discovery metadata; does not validate a particular client ID or exercise sign-in |
 
 These are connectivity/configuration checks, not complete end-to-end acceptance.
 Before opening the full feature set in staging, use a dedicated test user to

@@ -90,7 +90,7 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env) {
   if(smtpValues.some(Boolean)){
     if(!env.SMTP_HOST?.trim()||!env.SMTP_FROM||!/^\S+@[^\s@]+\.[^\s@]+$/.test(env.SMTP_FROM)||/[\r\n]/.test(env.SMTP_HOST))throw new Error('SMTP_HOST and a valid SMTP_FROM are required');
     if(Boolean(env.SMTP_USER)!==Boolean(env.SMTP_PASSWORD))throw new Error('Set both SMTP_USER and SMTP_PASSWORD');
-    const smtpPort=Number(env.SMTP_PORT??587);
+    const smtpPort=Number(env.SMTP_PORT||587);
     if(!Number.isInteger(smtpPort)||smtpPort<1||smtpPort>65535)throw new Error('SMTP_PORT must be a valid port');
     if(env.SMTP_SECURE&&!['true','false'].includes(env.SMTP_SECURE))throw new Error('SMTP_SECURE must be true or false');
     smtp={host:env.SMTP_HOST.trim(),from:env.SMTP_FROM,port:smtpPort,secure:env.SMTP_SECURE?env.SMTP_SECURE==='true':smtpPort===465,

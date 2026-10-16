@@ -53,7 +53,7 @@ export async function authRoutes(app: FastifyInstance, db: Database, access: Aut
 
   app.get('/v1/auth/me', { preHandler: access.authenticate }, async (request, reply) => {
     reply.header('Cache-Control', 'no-store');
-    return { user: request.principal };
+    return { user: { ...request.principal, email_verified: Boolean(request.principal!.email_verified_at) } };
   });
 
   app.post('/v1/auth/logout', { preHandler: access.authenticate }, async (request, reply) => {

@@ -100,7 +100,13 @@ require external provider credentials.
 | --- | --- | --- |
 | GET | `/health` | Public liveness |
 | GET | `/ready` | Public database readiness |
-| POST | `/v1/auth/register` | Public; `display_name`, `email`, `password` |
+| POST | `/v1/auth/register` | Public; starts email OTP signup, returns 202 |
+| POST | `/v1/auth/register/verify` | Public; `email`, `challenge_id`, `code`; creates verified account |
+| POST | `/v1/auth/email/request` | Signed-in account; sends email verification code |
+| POST | `/v1/auth/email/verify` | Signed-in account; verifies existing email |
+| POST | `/v1/auth/google/challenge` | Nonce for Google login; link action requires JWT |
+| POST | `/v1/auth/google` | Google ID token with issued nonce; returns PadiCheck JWT |
+| POST | `/v1/auth/google/link` | JWT; explicitly links a matching verified Google identity |
 | POST | `/v1/auth/login` | Public; `email`, `password` |
 | POST | `/v1/auth/logout` | Bearer token; returns 204 on revocation |
 | GET | `/v1/auth/me` | Bearer token |
@@ -120,14 +126,22 @@ require external provider credentials.
 | GET | `/v1/investigations/:investigation_id/model-runs` | Same investigation read permissions; execution/usage metadata |
 | GET/POST/PATCH | `/v1/admin/ai/{resource}` | `ai_config.manage`; see milestone 3 for resources and credential restrictions |
 
-Passwords must be 12–128 characters. Authentication endpoints allow 10 requests
-per minute per client IP in each API process. Use `Authorization: Bearer
+Passwords must be 12–128 characters. Signup/password login allow 10 requests per
+minute per client IP, OTP verification 30, and Google endpoints 20. Use `Authorization: Bearer
 <access_token>` for protected endpoints. Errors use
 `{"error":{"code":"...","message":"..."},"request_id":"..."}`. Client input
-cannot assign roles. Refresh tokens, password reset, email verification, and Google
-sign-in are not implemented. Google credentials are not configured. Deploy behind
+cannot assign roles. Refresh tokens and password reset are not implemented.
+Email OTP signup and Google sign-in require configured Redis/SMTP/Google settings;
+see [authentication](docs/authentication.md) for flows and account-linking rules. Deploy behind
 HTTPS. JWTs use fixed issuer/audience and HS256; permissions are read from the
 database on every protected request.
+
+## Logging
+
+Use the shared [Pino logger](src/logger.ts) or `request.log` in HTTP handlers.
+Logs are structured JSON on stderr, controlled by `LOG_LEVEL`, with component and
+request context plus credential redaction. CLI JSON reports stay on stdout.
+See [logging conventions](docs/logging.md) for examples and safe error handling.
 
 ## Media handling
 

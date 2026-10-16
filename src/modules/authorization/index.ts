@@ -15,6 +15,7 @@ export type Principal = {
   users_id: string;
   display_name: string;
   email: string;
+  email_verified_at?: Date | null;
   roles: string[];
   permissions: string[];
 };
@@ -38,7 +39,7 @@ export function authorization(app: FastifyInstance, db: Database, revocations: T
     }
     if (await revocations.has(tokenDigest(request))) throw new ApiError(401, 'unauthorized', 'Access token has been revoked');
     const result = await db.query<Principal>(`
-      SELECT u.users_id, u.display_name, u.email,
+      SELECT u.users_id, u.display_name, u.email, u.email_verified_at,
         COALESCE(array_agg(DISTINCT r.role_key) FILTER (WHERE r.role_key IS NOT NULL), '{}') AS roles,
         COALESCE(array_agg(DISTINCT p.permission_key) FILTER (WHERE p.permission_key IS NOT NULL), '{}') AS permissions
       FROM users u

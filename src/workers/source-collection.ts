@@ -1,4 +1,5 @@
 import 'dotenv/config';
+import { logger as rootLogger } from '../logger.js';
 import { Worker, UnrecoverableError } from 'bullmq';
 import { createDatabase } from '../database/index.js';
 import { loadConfig, validateWorkerConfig } from '../config.js';
@@ -10,6 +11,8 @@ import { uuidPattern } from '../modules/investigations/validation.js';
 import { researchAdapters } from '../adapters/research.js';
 import { deadline, gracefulShutdown } from '../runtime/lifecycle.js';
 import { databaseReadiness, researchReadiness } from '../runtime/readiness.js';
+const logger = rootLogger.child({ component: 'source-collection' });
+
 
 async function main() {
   const config = loadConfig();
@@ -32,7 +35,7 @@ async function main() {
       { name: 'queue', close: () => jobs.close() },
       { name: 'database', close: () => db.close() },
     ],
-    onError: name => { console.error(`Source-collection shutdown failed at ${name}`); process.exitCode = 1; },
+    onError: name => { logger.error({ step: name }, 'Source-collection shutdown failed'); process.exitCode = 1; },
   });
   function shutdown() {
     closing = true;
@@ -46,7 +49,7 @@ async function main() {
     if (closing || running) return;
     running = (async () => {
       try { cursor = await reconcileInvestigations(db, jobs, cursor, config.researchEnabled); }
-      catch { console.error('Investigation dispatch deferred; reconciliation will retry'); }
+      catch { logger.warn('Investigation dispatch deferred; reconciliation will retry'); }
       finally { running = undefined; }
     })();
   }
@@ -64,11 +67,11 @@ async function main() {
       return processCollectionJob(db, job, research);
     }, { connection: queueConnection(config.redisUrl!, true), concurrency: config.workerConcurrency, autorun: false });
 
-    worker.on('error', () => console.error('Source-collection worker connection error'));
+    worker.on('error', () => logger.error('Source-collection worker connection error'));
     worker.on('failed', job => {
       if (!job || !uuidPattern.test(job.data?.investigation_id ?? '') || job.attemptsMade < (job.opts.attempts ?? 1)) return;
       const write = failCollection(db, job.data.investigation_id, 'source_collection_failed', job.data.dispatch_revision).catch(() => {
-        console.error('Investigation failure status needs reconciliation');
+        logger.error('Investigation failure status needs reconciliation');
       });
       failureWrites.add(write);
       void write.finally(() => failureWrites.delete(write));
@@ -76,17 +79,17 @@ async function main() {
     await deadline(worker.waitUntilReady(), config.startupTimeoutMs);
     if (closing) { await worker.close(); return; }
     void worker.run().catch(() => {
-      console.error('Source-collection worker stopped unexpectedly');
+      logger.error('Source-collection worker stopped unexpectedly');
       process.exitCode = 1;
       void shutdown();
     });
     timer = setInterval(reconcile, config.reconcileIntervalMs);
     reconcile();
-    console.info('Source-collection worker ready');
+    logger.info('Source-collection worker ready');
   } catch {
-    console.error('Source-collection startup failed; check configuration and dependency readiness');
+    logger.error('Source-collection startup failed; check configuration and dependency readiness');
     process.exitCode = 1;
     await shutdown();
   }
 }
-await main().catch(() => { console.error('Source-collection configuration or initialization failed'); process.exitCode = 1; });
+await main().catch(() => { logger.error('Source-collection configuration or initialization failed'); process.exitCode = 1; });

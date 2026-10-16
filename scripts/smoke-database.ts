@@ -1,4 +1,5 @@
 import 'dotenv/config';
+import { logger as rootLogger } from '../src/logger.js';
 import assert from 'node:assert/strict';
 import { randomBytes } from 'node:crypto';
 import pg from 'pg';
@@ -6,6 +7,8 @@ import { buildTestApp as buildApp, completeRegistration } from '../tests/support
 import { loadConfig } from '../src/config.js';
 import type { Database } from '../src/database/index.js';
 import { collectSubmittedSources } from '../src/modules/investigations/collector.js';
+const logger = rootLogger.child({ component: 'smoke-database' });
+
 
 // Exercise real PostgreSQL without leaving test accounts or credentials behind.
 // Use SAVEPOINT for application transactions inside a rollback-only outer one.
@@ -34,7 +37,7 @@ try {
     async close() {},
   };
   // A smoke test must not put rollback-only investigation IDs in the real queue.
-  const app = buildApp({ ...config, logLevel: 'silent' }, db, { jobs: {
+  const app = buildApp({ ...config, nodeEnv: 'test', logLevel: 'silent' }, db, { jobs: {
     async enqueue() { return 'waiting'; }, async ping() {}, async close() {},
   } });
   try {
@@ -69,12 +72,12 @@ try {
   } finally {
     await app.close();
   }
-  console.log('Live PostgreSQL auth, RBAC, readiness, investigation creation, reference collection, and cancellation checks passed.');
+  logger.info('Live PostgreSQL auth, RBAC, readiness, investigation creation, reference collection, and cancellation checks passed.');
 } finally {
   if (client) {
     await client.query('ROLLBACK');
     client.release();
-    console.log('Temporary smoke-test database writes rolled back.');
+    logger.info('Temporary smoke-test database writes rolled back.');
   }
   await pool.end();
 }

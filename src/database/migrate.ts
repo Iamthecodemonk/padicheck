@@ -1,6 +1,9 @@
 import 'dotenv/config';
+import { logger as rootLogger } from '../logger.js';
 import { readFile } from 'node:fs/promises';
 import pg from 'pg';
+const logger = rootLogger.child({ component: 'migrate' });
+
 
 // The supplied baseline includes BEGIN/COMMIT and must remain unchanged.
 // This initial runner applies it once to an empty public schema. It does not
@@ -23,7 +26,7 @@ try {
   }
   const sql = await readFile(new URL('../../db/migrations/001_baseline.sql', import.meta.url), 'utf8');
   await client.query(sql);
-  console.log('Applied 001_baseline.sql without schema modifications.');
+  logger.info('Applied 001_baseline.sql without schema modifications.');
 } catch (error) {
   if (client) await client.query('ROLLBACK');
   throw error;

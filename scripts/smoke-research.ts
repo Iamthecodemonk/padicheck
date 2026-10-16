@@ -1,4 +1,5 @@
 import 'dotenv/config';
+import { logger as rootLogger } from '../src/logger.js';
 import assert from 'node:assert/strict';
 import { randomBytes } from 'node:crypto';
 import { readFile } from 'node:fs/promises';
@@ -8,6 +9,8 @@ import { createInvestigation } from '../src/modules/investigations/service.js';
 import { collectSubmittedSources } from '../src/modules/investigations/collector.js';
 import { runResearch } from '../src/modules/research/pipeline.js';
 import type { ResearchAdapters } from '../src/modules/research/types.js';
+const logger = rootLogger.child({ component: 'smoke-research' });
+
 
 // Requires CREATEDB on the configured role. Never reset the configured database.
 if (!process.env.DATABASE_URL) throw new Error('DATABASE_URL is required');
@@ -59,12 +62,12 @@ try {
   assert.equal((await db.query('SELECT verification_status FROM findings WHERE investigation_id = $1', [id])).rows[0]!.verification_status, 'unverified');
   assert.equal((await db.query('SELECT status FROM model_runs WHERE investigation_id = $1', [id])).rows[0]!.status, 'succeeded');
   assert.equal((await runResearch(db, id, adapters)).outcome, 'ignored');
-  console.log('Live PostgreSQL registry, advisory-lock exclusion, research lifecycle, execution records and evidence links passed using provider doubles.');
+  logger.info('Live PostgreSQL registry, advisory-lock exclusion, research lifecycle, execution records and evidence links passed using provider doubles.');
 } catch (error) {
-  console.error('Research smoke failed:', (error as { code?: string }).code ?? 'validation_or_configuration_error');
+  logger.error({ err: error }, 'Research smoke failed:');
   process.exitCode = 1;
 } finally {
   if (db) await db.close();
-  if (created) { await admin.query(`DROP DATABASE "${name}"`); console.log('Removed the generated research smoke database.'); }
+  if (created) { await admin.query(`DROP DATABASE "${name}"`); logger.info('Removed the generated research smoke database.'); }
   await admin.end();
 }

@@ -1,13 +1,16 @@
+import { logger as rootLogger } from '../logger.js';
 import type { FastifyInstance } from 'fastify';
 import type { AppConfig } from '../config.js';
 import { deadline, gracefulShutdown } from './lifecycle.js';
+const logger = rootLogger.child({ component: 'api' });
+
 
 export function apiRuntime(app: FastifyInstance, config: AppConfig) {
   let closing = false;
   const close = gracefulShutdown({
     timeoutMs: config.shutdownTimeoutMs,
     steps: [{ name: 'api', close: () => app.close() }],
-    onError: () => { console.error('API shutdown failed'); process.exitCode = 1; },
+    onError: () => { logger.error('API shutdown failed'); process.exitCode = 1; },
   });
   const shutdown = () => { closing = true; return close(); };
   return {

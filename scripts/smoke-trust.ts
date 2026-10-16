@@ -1,4 +1,5 @@
 import 'dotenv/config';
+import { logger as rootLogger } from '../src/logger.js';
 import assert from 'node:assert/strict';
 import { randomBytes, randomUUID } from 'node:crypto';
 import { readFile } from 'node:fs/promises';
@@ -6,6 +7,8 @@ import pg from 'pg';
 import { createDatabase, type Database } from '../src/database/index.js';
 import { buildTestApp as buildApp, completeRegistration } from '../tests/support/auth.js';
 import { loadConfig } from '../src/config.js';
+const logger = rootLogger.child({ component: 'smoke-trust' });
+
 
 if (!process.env.DATABASE_URL) throw new Error('DATABASE_URL is required');
 const base = new URL(process.env.DATABASE_URL);
@@ -65,13 +68,13 @@ try {
   assert.equal((await scratch.query('SELECT status FROM user_reports WHERE user_report_id = $1', [reportId])).rows[0]!.status, 'published');
   assert.equal((await post(resolveUrl, staff, { status: 'resolved', report_action: 'unpublish', note: 'Further evidence needed' })).statusCode, 200);
   assert.equal((await api.inject({ url: `/v1/directory/${business.business_profile_id}/reports` })).json().reports.length, 0);
-  console.log('Live PostgreSQL trust lifecycle, concurrent submissions/approvals and audit rollback passed. No external provider calls.');
+  logger.info('Live PostgreSQL trust lifecycle, concurrent submissions/approvals and audit rollback passed. No external provider calls.');
 } catch (error) {
-  console.error('Trust smoke failed:', (error as { code?: string }).code ?? 'validation_or_configuration_error');
+  logger.error({ err: error }, 'Trust smoke failed:');
   process.exitCode = 1;
 } finally {
   if (app) await app.close();
   if (db) await db.close();
-  try { if (created) { await admin.query(`DROP DATABASE "${name}"`); console.log('Removed the generated trust smoke database.'); } }
+  try { if (created) { await admin.query(`DROP DATABASE "${name}"`); logger.info('Removed the generated trust smoke database.'); } }
   finally { await admin.end(); }
 }

@@ -1,4 +1,7 @@
+import { logger as rootLogger } from '../logger.js';
 import pg, { type QueryResultRow, type QueryResult } from 'pg';
+const logger = rootLogger.child({ component: 'database' });
+
 
 export interface SqlExecutor {
   query<T extends QueryResultRow = QueryResultRow>(sql: string, values?: unknown[]): Promise<QueryResult<T>>;
@@ -20,7 +23,7 @@ export function createDatabase(connectionString: string): Database {
   });
   // Idle connection failures should not terminate the API; readiness checks
   // and request queries report availability. Never log connection strings.
-  pool.on('error', () => console.error('An idle PostgreSQL connection failed'));
+  pool.on('error', () => logger.error('An idle PostgreSQL connection failed'));
   return {
     query: (sql, values) => pool.query(sql, values),
     async session(work) {

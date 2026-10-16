@@ -1,8 +1,11 @@
 import 'dotenv/config';
+import { logger as rootLogger } from '../src/logger.js';
 import { readFile, mkdir, writeFile } from 'node:fs/promises';
 import { isDeepStrictEqual } from 'node:util';
 import { PGlite } from '@electric-sql/pglite';
 import pg from 'pg';
+const logger = rootLogger.child({ component: 'verify-database' });
+
 
 if (!process.env.DATABASE_URL) throw new Error('DATABASE_URL is required');
 const expected = new PGlite();
@@ -53,13 +56,13 @@ try {
   if (Object.keys(differences).length) {
     await mkdir(new URL('../docs/', import.meta.url), { recursive: true });
     await writeFile(new URL('../docs/database-drift.json', import.meta.url), JSON.stringify(differences, null, 2) + '\n');
-    console.log('Schema drift found. Details written to docs/database-drift.json. No database writes performed.');
-    console.log(JSON.stringify(Object.fromEntries(Object.entries(differences).map(([key, value]) => [key, value.length]))));
+    logger.info('Schema drift found. Details written to docs/database-drift.json. No database writes performed.');
+    process.stdout.write(JSON.stringify(Object.fromEntries(Object.entries(differences).map(([key, value]) => [key, value.length]))) + '\n');
     process.exitCode = 1;
   } else {
     await mkdir(new URL('../docs/', import.meta.url), { recursive: true });
     await writeFile(new URL('../docs/database-drift.json', import.meta.url), '{}\n');
-    console.log('Existing database matches baseline columns, constraints, indexes, and triggers. No database writes performed.');
+    logger.info('Existing database matches baseline columns, constraints, indexes, and triggers. No database writes performed.');
   }
 } finally {
   if (client) { await client.query('ROLLBACK'); client.release(); }

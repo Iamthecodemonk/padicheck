@@ -50,7 +50,7 @@ test('startup and drain deadlines are bounded',async()=>{
 test('integration checks distinguish missing configuration from actual failures and sanitize errors',async()=>{
   const calls:string[]=[];
   const probes:IntegrationProbes={database:async()=>{calls.push('database');},redis:async()=>{throw new Error('SECRET_CONNECTION_STRING');},
-    cloudinary:async()=>{},ultrasearch:async()=>{},gemini:async()=>{},research_registry:async()=>{}};
+    cloudinary:async()=>{},ultrasearch:async()=>{},gemini:async()=>{},research_registry:async()=>{},smtp:async()=>{},google:async()=>{}};
   const results=await checkIntegrations(loadConfig(env),probes);
   assert.deepEqual(calls,['database']);assert.equal(results.find(result=>result.name==='gemini')!.status,'unconfigured');
   assert.equal(results.find(result=>result.name==='research_registry')!.status,'disabled');
@@ -123,7 +123,7 @@ test('API readiness, proxy trust, production startup and HTTP draining',async t=
 test('worker process rejects missing Redis before connecting and logs no credentials',async()=>{
   const run=promisify(execFile);
   await assert.rejects(run(process.execPath,['--import','tsx','src/workers/source-collection.ts'],{
-    cwd:process.cwd(),timeout:10000,env:{...process.env,...env,REDIS_URL:'',RESEARCH_ENABLED:'false',
+    cwd:process.cwd(),timeout:10000,env:{...process.env,...env,LOG_LEVEL:'info',REDIS_URL:'',RESEARCH_ENABLED:'false',
       DATABASE_URL:'postgres://SECRET_USER:SECRET_PASSWORD@127.0.0.1:1/unavailable',CLOUDINARY_CLOUD_NAME:'',CLOUDINARY_API_KEY:'',CLOUDINARY_API_SECRET:''},
   }),(error:unknown)=>{
     const result=error as {code?:number;stdout?:string;stderr?:string};

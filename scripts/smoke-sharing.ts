@@ -1,4 +1,5 @@
 import 'dotenv/config';
+import { logger as rootLogger } from '../src/logger.js';
 import assert from 'node:assert/strict';
 import { randomBytes } from 'node:crypto';
 import { readFile } from 'node:fs/promises';
@@ -6,6 +7,8 @@ import pg from 'pg';
 import { createDatabase, type Database } from '../src/database/index.js';
 import { buildTestApp as buildApp, completeRegistration } from '../tests/support/auth.js';
 import { loadConfig } from '../src/config.js';
+const logger = rootLogger.child({ component: 'smoke-sharing' });
+
 
 if (!process.env.DATABASE_URL) throw new Error('DATABASE_URL is required');
 const base = new URL(process.env.DATABASE_URL);
@@ -66,12 +69,12 @@ try {
   assert.equal((await revocation!).statusCode,200);
   assert.equal((await redemption!).statusCode,404);
   assert.equal((await resolve()).statusCode,404);
-  console.log('Live PostgreSQL sharing, concurrent active-link cap, queued revocation and blocked redemption passed. No external provider calls.');
+  logger.info('Live PostgreSQL sharing, concurrent active-link cap, queued revocation and blocked redemption passed. No external provider calls.');
 } catch(error) {
-  console.error('Sharing smoke failed:',(error as {code?:string}).code??'validation_or_configuration_error'); process.exitCode=1;
+  logger.error({ err: error }, 'Sharing smoke failed:'); process.exitCode=1;
 } finally {
   if(app) await app.close();
   if(db) await db.close();
-  try {if(created){await admin.query(`DROP DATABASE "${name}"`);console.log('Removed the generated sharing smoke database.');}}
+  try {if(created){await admin.query(`DROP DATABASE "${name}"`);logger.info('Removed the generated sharing smoke database.');}}
   finally {await admin.end();}
 }

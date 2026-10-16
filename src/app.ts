@@ -1,4 +1,4 @@
-import Fastify, { type FastifyError } from 'fastify';
+import Fastify, { type FastifyError, type FastifyBaseLogger } from 'fastify';
 import type { AppConfig } from './config.js';
 import jwt from '@fastify/jwt';
 import rateLimit from '@fastify/rate-limit';
@@ -24,20 +24,12 @@ import { redisAuthChallenges } from './adapters/auth-challenges.js';
 import { smtpMailer } from './adapters/smtp.js';
 import { googleIdentity } from './adapters/google-identity.js';
 import type { AuthDependencies } from './modules/auth/identity-types.js';
+import { createLogger } from './logger.js';
 
 export function buildApp(config: AppConfig, database?: Database,
   dependencies: { storage?: MediaStorage; revocations?: TokenRevocations; jobs?: InvestigationJobs; auth?: AuthDependencies } = {}) {
   const app = Fastify({
-    logger: {
-      level: config.logLevel,
-      serializers: { req: (request: { method?: string; url?: string; hostname?: string; ip?: string }) => ({
-        method: request.method, url: request.url?.split('?')[0], hostname: request.hostname, remoteAddress: request.ip,
-      }) },
-      redact: {
-        paths: ['req.headers.authorization', 'req.headers.cookie', 'res.headers["set-cookie"]'],
-        censor: '[REDACTED]',
-      },
-    },
+    loggerInstance: createLogger('api', config.logLevel) as FastifyBaseLogger,
     bodyLimit: 1024 * 1024,
     trustProxy: config.trustProxy,
     requestTimeout: config.requestTimeoutMs,

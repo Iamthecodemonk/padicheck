@@ -6,8 +6,9 @@ import { investigationJobs } from '../adapters/investigation-jobs.js';
 import { providerJson } from '../adapters/provider-http.js';
 import { ultraSearch } from '../adapters/ultrasearch.js';
 import { deadline } from './lifecycle.js';
+import { smtpMailer } from '../adapters/smtp.js';
 
-export type IntegrationName = 'database'|'redis'|'cloudinary'|'ultrasearch'|'gemini'|'research_registry';
+export type IntegrationName = 'database'|'redis'|'cloudinary'|'ultrasearch'|'gemini'|'research_registry'|'smtp'|'google';
 export type IntegrationResult = { name:IntegrationName; status:'passed'|'failed'|'unconfigured'|'disabled' };
 export type IntegrationProbes = Record<IntegrationName,()=>Promise<unknown>>;
 
@@ -54,12 +55,17 @@ export function integrationProbes(config:AppConfig,db:Database,env:NodeJS.Proces
       }
     },
     research_registry:()=>researchReadiness(db,config,env),
+    async smtp(){const mailer=smtpMailer(config.smtp!);try{await mailer.verify();}finally{mailer.close();}},
+    async google(){
+      const metadata=await providerJson('https://accounts.google.com/.well-known/openid-configuration',{});
+      if(metadata.issuer!=='https://accounts.google.com')throw new Error('Google identity metadata unavailable');
+    },
   };
 }
 
 export async function checkIntegrations(config:AppConfig,probes:IntegrationProbes):Promise<IntegrationResult[]> {
   const enabled:Record<IntegrationName,boolean>={database:true,redis:!!config.redisUrl,cloudinary:!!config.cloudinary,
-    ultrasearch:!!config.ultraSearchUrl,gemini:config.geminiConfigured,research_registry:config.researchEnabled};
+    ultrasearch:!!config.ultraSearchUrl,gemini:config.geminiConfigured,research_registry:config.researchEnabled,smtp:!!config.smtp,google:!!config.googleClientId};
   const results:IntegrationResult[]=[];
   for(const name of Object.keys(enabled) as IntegrationName[]){
     if(!enabled[name]){results.push({name,status:name==='research_registry'?'disabled':'unconfigured'});continue;}

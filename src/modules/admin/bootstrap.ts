@@ -1,5 +1,8 @@
 import 'dotenv/config';
+import { logger as rootLogger } from '../../logger.js';
 import { createDatabase } from '../../database/index.js';
+const logger = rootLogger.child({ component: 'bootstrap' });
+
 
 const email = process.argv[2];
 if (!email || !process.env.DATABASE_URL) throw new Error('Usage: npm run admin:bootstrap -- owner@example.com (DATABASE_URL required)');
@@ -17,7 +20,7 @@ try {
     await client.query(`INSERT INTO admin_audit_logs (actor_user_id, action, target_type, target_id, after_state)
       VALUES ($1, 'roles.bootstrap_superadmin', 'user', $1, $2::jsonb)`, [id, JSON.stringify({ granted_role: 'superadmin' })]);
   });
-  console.log('Superadmin bootstrap completed and audited.');
+  logger.info('Superadmin bootstrap completed and audited.');
 } finally {
   await db.close();
 }
