@@ -7,16 +7,18 @@ import { processCollectionJob } from '../modules/investigations/process-job.js';
 import { failCollection } from '../modules/investigations/service.js';
 import { reconcileInvestigations, type ReconcileCursor } from '../modules/investigations/reconcile.js';
 import { uuidPattern } from '../modules/investigations/validation.js';
+import { researchAdapters } from '../adapters/research.js';
 
 const config = loadConfig();
 if (!config.redisUrl) throw new Error('REDIS_URL is required to run the source-collection worker');
 const db = createDatabase(config.databaseUrl);
 const jobs = investigationJobs(config.redisUrl);
+const research = config.researchEnabled ? researchAdapters(config) : undefined;
 const worker = new Worker<CollectionJobData>(sourceCollectionQueue, async job => {
   if (job.name !== collectionJobName || !uuidPattern.test(job.data?.investigation_id ?? '')) {
     throw new UnrecoverableError('Unsupported source collection job');
   }
-  return processCollectionJob(db, job);
+  return processCollectionJob(db, job, research);
 }, { connection: queueConnection(config.redisUrl, true), concurrency: config.workerConcurrency });
 
 worker.on('error', () => console.error('Source-collection worker connection error'));
@@ -33,7 +35,7 @@ let running: Promise<void> | undefined;
 function reconcile() {
   if (closing || running) return;
   running = (async () => {
-    try { cursor = await reconcileInvestigations(db, jobs, cursor); }
+    try { cursor = await reconcileInvestigations(db, jobs, cursor, config.researchEnabled); }
     catch { console.error('Investigation dispatch deferred; reconciliation will retry'); }
     finally { running = undefined; }
   })();

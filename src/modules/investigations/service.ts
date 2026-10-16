@@ -44,6 +44,6 @@ export async function dispatchInvestigation(jobs: InvestigationJobs | undefined,
 
 export async function failCollection(db: Database, id: string, code: string, revision: string) {
   await db.query(`UPDATE investigations SET status = 'failed', error_code = $2, completed_at = now()
-    WHERE investigation_id = $1 AND status IN ('queued', 'collecting_sources')
+    WHERE investigation_id = $1 AND status IN ('queued', 'collecting_sources', 'analyzing')
     AND ${revisionSql} = $3`, [id, code, revision]);
 }

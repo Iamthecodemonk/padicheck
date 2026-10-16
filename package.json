@@ -17,6 +17,7 @@
     "db:verify": "tsx scripts/verify-database.ts",
     "db:align-legacy": "tsx scripts/align-database.ts",
     "db:smoke": "tsx scripts/smoke-database.ts",
+    "research:smoke": "tsx scripts/smoke-research.ts",
     "admin:bootstrap": "tsx src/modules/admin/bootstrap.ts",
     "test": "tsx --test --test-concurrency=1 tests/*.test.ts"
   },
@@ -25,10 +26,13 @@
     "@fastify/multipart": "^10.1.2",
     "@fastify/rate-limit": "^11.2.0",
     "bullmq": "^6.3.15",
+    "cheerio": "^1.2.0",
     "cloudinary": "^2.11.0",
     "dotenv": "^16.4.7",
     "fastify": "^5.0.0",
     "file-type": "^22.1.1",
+    "ipaddr.js": "^2.5.0",
+    "pdfjs-dist": "^6.4.299",
     "pg": "^8.23.1",
     "redis": "^6.3.0"
   },

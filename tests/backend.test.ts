@@ -23,6 +23,7 @@ test('supplied schema and authentication integration', async t => {
   };
   const db: Database = {
     ...executor,
+    session: work => work(executor),
     async transaction(work) {
       return postgres.transaction(async tx => work({
         async query<T extends QueryResultRow>(text: string, values?: unknown[]): Promise<QueryResult<T>> {

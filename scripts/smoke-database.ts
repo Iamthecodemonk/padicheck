@@ -18,6 +18,7 @@ try {
   await connection.query('BEGIN');
   const db: Database = {
     query: (sql, values) => connection.query(sql, values),
+    session: work => work(connection),
     async transaction(work) {
       await connection.query('SAVEPOINT smoke_work');
       try {

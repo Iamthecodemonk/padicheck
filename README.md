@@ -14,14 +14,16 @@ run separately and reuse the API's domain modules and provider adapters.
 - Backend-controlled Cloudinary uploads, private delivery, and media lifecycle tracking.
 - Investigation creation, owner cancellation/retry, scoped reads, targets and identifiers.
 - BullMQ workers for collecting submitted source references, with durable PostgreSQL reconciliation.
+- Opt-in UltraSearch discovery, bounded page/PDF text retrieval, and registry-routed Gemini analysis.
+- Evidence-linked unverified findings, model-run records, and audited AI configuration APIs.
 - Structured logging with authorization and cookie redaction.
 - Graceful shutdown.
 
 The supplied schema is present and copied unchanged to the baseline migration.
 The configured local database has been aligned with the supplied schema using
 the approved legacy migration. See [schema-alignment.md](docs/schema-alignment.md)
-for the inspection and application record. Independent web research, AI analysis,
-findings, and directory/moderation workflows remain later milestones.
+for the inspection and application record. Directory, verification, and moderation
+workflows remain later milestones. Research stays disabled until configured.
 
 ## Local setup
 
@@ -114,6 +116,9 @@ require external provider credentials.
 | GET | `/v1/investigations/:investigation_id/sources` | Same read permissions |
 | POST | `/v1/investigations/:investigation_id/cancel` | Owner with `investigations.create`; active requests only |
 | POST | `/v1/investigations/:investigation_id/retry` | Owner with `investigations.create`; failed requests only |
+| GET | `/v1/investigations/:investigation_id/findings` | Same investigation read permissions; includes source links/quotes |
+| GET | `/v1/investigations/:investigation_id/model-runs` | Same investigation read permissions; execution/usage metadata |
+| GET/POST/PATCH | `/v1/admin/ai/{resource}` | `ai_config.manage`; see milestone 3 for resources and credential restrictions |
 
 Passwords must be 12–128 characters. Authentication endpoints allow 10 requests
 per minute per client IP in each API process. Use `Authorization: Bearer
@@ -202,14 +207,15 @@ prompt limit is 10,000 characters, with a 64 KiB total creation-body limit.
 Submitted URLs and documents become private `sources` linked through
 `investigation_sources`, with `discovery_method = user_submission` and
 `used_in_analysis = false`. The collector records references and existing hashes;
-it does not fetch URLs, download documents, independently search, or run AI.
-Sources have no fabricated fetched timestamp, excerpt, or verification claim.
+when research is disabled, it does not fetch URLs, download documents, independently
+search, or run AI. Sources have no fabricated fetched timestamp, excerpt, or
+verification claim. The optional research stage below retrieves actual excerpts.
 
 The current lifecycle is `queued -> collecting_sources`, with explicit failure,
 owner retry (`failed -> queued`), and owner cancellation. After successful
 reference collection, status stays `collecting_sources` and detail responses
 include `source_collection_complete: true` plus the current capability limits.
-No investigation is marked `analyzing` or `completed` in this milestone. Read-all
+With research disabled, no investigation is marked `analyzing` or `completed`. Read-all
 permission does not allow someone to cancel or retry another user's request.
 
 List requests support `limit` (1–100) and an opaque `cursor`; responses include
@@ -240,6 +246,49 @@ scans in pages of 100. Job data contains an investigation ID and database revisi
 not prompts, uploaded bytes, source URLs, or credentials. See
 [milestone-2.md](docs/milestone-2.md) for schema mapping, recovery semantics, tests,
 and remaining integration limits.
+
+## UltraSearch and Gemini research
+
+Research is opt-in (`RESEARCH_ENABLED=false` by default). This preserves submitted
+reference collection while providers are unconfigured. To enable the full path,
+configure `REDIS_URL`, `ULTRASEARCH_URL`, and `GEMINI_API_KEY`, create the AI registry
+entries described in [milestone-3.md](docs/milestone-3.md), then set
+`RESEARCH_ENABLED=true` in both API and worker environments and restart them.
+Set Cloudinary credentials as well for private document extraction.
+
+The supported search service is the user-selected
+[Ramcharan747/UltraSearch](https://github.com/Ramcharan747/UltraSearch) REST API.
+The adapter requests organic links with `ai_mode=none` and `content=false`;
+PadiCheck fetches returned pages through its own public-address checks. Gemini
+uses the model ID stored in `ai_models` and task assignments ordered by priority.
+No production model ID is hard-coded or inferred from an environment variable.
+
+Enabled processing follows `collecting_sources -> analyzing -> completed`, or a
+recorded failure/cancellation. `completed` means processing finished, not that a
+claim is verified. Every AI finding is stored as `unverified`, cites an allowed
+source ID, and includes an exact quotation present in the supplied excerpt.
+Quotation validation checks provenance, not whether a conclusion follows from
+the evidence. The API includes limitations; users must judge the sources and
+interpretation.
+
+The worker blocks nonpublic addresses and validates/pins DNS results and
+redirect destinations. Public pages are bounded to 2 MiB and extracted excerpts
+to 16,000 characters. PDF extraction is bounded to 25 MiB/50 pages in a separate
+worker thread with a 15-second deadline. Image-only/scanned PDFs need OCR, which
+is not implemented. Source excerpts and extraction metadata are stored in
+`sources`; uploaded file bytes remain outside PostgreSQL.
+
+For a live PostgreSQL pipeline check with provider doubles:
+
+```powershell
+npm.cmd run research:smoke
+```
+
+This command requires database-creation permission, creates an isolated generated
+scratch database, applies the unchanged baseline, tests the pipeline and advisory
+lock exclusion, and removes that scratch database. It does not reset your app
+database or call real UltraSearch/Gemini services. See milestone 3 for test results
+and live-integration limits.
 
 After registration, a database operator can bootstrap the first superadmin:
 

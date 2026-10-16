@@ -14,6 +14,7 @@ export async function testDatabase() {
   };
   const db: Database = {
     ...executor,
+    session: work => work(executor),
     transaction: work => postgres.transaction(tx => work({
       async query<T extends QueryResultRow>(sql: string, values?: unknown[]): Promise<QueryResult<T>> {
         const result = await tx.query<T>(sql, values);

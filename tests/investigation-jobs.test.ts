@@ -45,5 +45,13 @@ test('queue adapter deduplicates delivery and restarts only new request revision
   state = 'failed';
   assert.equal(await jobs.enqueue(id, true, 'revision-two'), 'failed');
   assert.equal(retries, 1);
+  // Enabling research can resume previously collected references, but an
+  // exhausted research job must not be restarted without an owner retry.
+  state = 'completed';
+  assert.equal(await jobs.enqueue(id, false, 'collection-revision', true), 'waiting');
+  assert.equal(retries, 2);
+  state = 'failed';
+  assert.equal(await jobs.enqueue(id, false, 'collection-revision', true), 'failed');
+  assert.equal(retries, 2);
   await jobs.close();
 });

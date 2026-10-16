@@ -11,7 +11,7 @@ const paramsSchema = { type: 'object', additionalProperties: false, required: ['
 type Params = { investigation_id: string };
 type SourceRow = { source_id: string; source_type: string; url: string | null; media_id: string | null; [key: string]: unknown };
 
-export async function investigationRoutes(app: FastifyInstance, db: Database, access: Authorization, jobs?: InvestigationJobs) {
+export async function investigationRoutes(app: FastifyInstance, db: Database, access: Authorization, jobs?: InvestigationJobs, researchEnabled = false) {
   app.addHook('onSend', async (request, reply, payload) => {
     if (request.url.startsWith('/v1/investigations')) reply.header('Cache-Control', 'no-store');
     return payload;
@@ -25,7 +25,7 @@ export async function investigationRoutes(app: FastifyInstance, db: Database, ac
     if (!row) throw new ApiError(404, 'investigation_not_found', 'Investigation was not found');
     return row;
   }
-  const capabilities = { independent_search: false, ai_analysis: false };
+  const capabilities = { independent_search: researchEnabled, ai_analysis: researchEnabled };
 
   app.post<{ Body: CreateInvestigation }>('/v1/investigations', {
     onRequest: access.requirePermission('investigations.create'),
@@ -96,7 +96,34 @@ export async function investigationRoutes(app: FastifyInstance, db: Database, ac
     const complete = !['queued', 'failed'].includes(row.status) && row.started_at !== null && urls.every(url => sources.rows.some(source => source.source_type === 'user_provided_link' && source.url === url)) &&
       documents.every(id => sources.rows.some(source => source.source_type === 'uploaded_document' && source.media_id === id));
     return { investigation: row, targets: targets.rows, source_collection_complete: complete, capabilities,
-      limitations: ['Submitted references are not independently verified. Web research and AI analysis are not enabled in this milestone.'] };
+      limitations: [researchEnabled ? 'AI-assisted interpretation of available evidence is not verification. Source coverage and model output may be incomplete or wrong.' :
+        'Submitted references are not independently verified. Web research and AI analysis are disabled.'] };
+  });
+
+  app.get<{ Params: Params; Querystring: { limit?: number; offset?: number } }>('/v1/investigations/:investigation_id/findings', {
+    onRequest: access.authenticate, schema: { params: paramsSchema, querystring: { type: 'object', additionalProperties: false,
+      properties: { limit: { type: 'integer', minimum: 1, maximum: 100, default: 20 }, offset: { type: 'integer', minimum: 0, maximum: 10000, default: 0 } } } },
+  }, async request => {
+    await readable(request.params.investigation_id, request.principal!);
+    const result = await db.query(`SELECT f.*, COALESCE(jsonb_agg(jsonb_build_object('source_id', s.source_id,
+      'url', s.url, 'media_id', s.media_id, 'title', s.title, 'support_type', link.support_type, 'evidence_note', link.evidence_note))
+      FILTER (WHERE s.source_id IS NOT NULL), '[]'::jsonb) AS sources
+      FROM findings f LEFT JOIN finding_sources link ON link.finding_id = f.finding_id LEFT JOIN sources s ON s.source_id = link.source_id
+      WHERE f.investigation_id = $1 GROUP BY f.finding_id ORDER BY f.display_order, f.finding_id LIMIT $2 OFFSET $3`,
+    [request.params.investigation_id, request.query.limit ?? 20, request.query.offset ?? 0]);
+    return { findings: result.rows, limitations: ['AI-generated findings remain unverified; review the linked evidence and source coverage.'] };
+  });
+
+  app.get<{ Params: Params; Querystring: { limit?: number; offset?: number } }>('/v1/investigations/:investigation_id/model-runs', {
+    onRequest: access.authenticate, schema: { params: paramsSchema, querystring: { type: 'object', additionalProperties: false,
+      properties: { limit: { type: 'integer', minimum: 1, maximum: 100, default: 20 }, offset: { type: 'integer', minimum: 0, maximum: 10000, default: 0 } } } },
+  }, async request => {
+    await readable(request.params.investigation_id, request.principal!);
+    const result = await db.query(`SELECT model_run_id, task_type, provider, model_name, prompt_version, status,
+      input_tokens, output_tokens, estimated_cost_usd, error_code, started_at, completed_at, created_at
+      FROM model_runs WHERE investigation_id = $1 ORDER BY created_at DESC, model_run_id DESC LIMIT $2 OFFSET $3`,
+    [request.params.investigation_id, request.query.limit ?? 20, request.query.offset ?? 0]);
+    return { model_runs: result.rows };
   });
 
   app.get<{ Params: Params; Querystring: { limit?: number; offset?: number } }>('/v1/investigations/:investigation_id/sources', {

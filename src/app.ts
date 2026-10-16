@@ -15,6 +15,7 @@ import type { MediaStorage } from './modules/media/types.js';
 import { investigationRoutes } from './modules/investigations/routes.js';
 import { investigationJobs } from './adapters/investigation-jobs.js';
 import type { InvestigationJobs } from './modules/investigations/types.js';
+import { researchAdminRoutes } from './modules/research/admin-routes.js';
 
 export function buildApp(config: AppConfig, database?: Database,
   dependencies: { storage?: MediaStorage; revocations?: TokenRevocations; jobs?: InvestigationJobs } = {}) {
@@ -68,6 +69,10 @@ export function buildApp(config: AppConfig, database?: Database,
         ident.identifier_id, target.investigation_target_id, s.source_id, link.used_in_analysis
         FROM investigations i, entities e, identifiers ident, investigation_targets target,
         sources s, investigation_sources link LIMIT 0`);
+      await db.query(`SELECT p.provider_id, m.provider_model_id, a.instructions_template, task.task_code, tool.tool_code,
+        agent_tool.is_enabled, assignment.priority, run.prompt_version, finding.verification_status, evidence.source_id
+        FROM ai_providers p, ai_models m, ai_agents a, ai_task_types task, ai_tools tool, ai_agent_tools agent_tool,
+        ai_task_assignments assignment, model_runs run, findings finding, finding_sources evidence LIMIT 0`);
       await revocations.ping();
       if (jobs) await jobs.ping();
       return { status: 'ready', background_jobs: jobs ? 'configured' : 'unconfigured' };
@@ -87,8 +92,9 @@ export function buildApp(config: AppConfig, database?: Database,
     const access = authorization(api, db, revocations);
     await authRoutes(api, db, access, revocations);
     await adminRoutes(api, db, access);
+    await researchAdminRoutes(api, db, access);
     await mediaRoutes(api, db, access, storage, config.uploadMaxBytes);
-    await investigationRoutes(api, db, access, jobs);
+    await investigationRoutes(api, db, access, jobs, config.researchEnabled);
   });
 
   return app;

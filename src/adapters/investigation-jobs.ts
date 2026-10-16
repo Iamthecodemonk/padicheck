@@ -39,12 +39,13 @@ export function investigationJobs(redisUrl: string): InvestigationJobs {
 
 export function createInvestigationJobAdapter(queue: CollectionQueueTransport): InvestigationJobs {
   return {
-    enqueue(id, restartFinished, revision) {
+    enqueue(id, restartFinished, revision, continueCompleted = false) {
       return boundedQueueCall((async (): Promise<QueueState> => {
         const existing = await queue.getJob(id);
         if (existing) {
           const state = await existing.getState();
-          if (restartFinished && existing.data.dispatch_revision !== revision && (state === 'completed' || state === 'failed')) {
+          if ((continueCompleted && state === 'completed') ||
+              (restartFinished && existing.data.dispatch_revision !== revision && (state === 'completed' || state === 'failed'))) {
             // Requeue first. The worker stamps the current DB revision before
             // collection. Updating it here before retry would lose dispatch if
             // this process crashed between updateData and retry.

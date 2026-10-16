@@ -53,7 +53,16 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env) {
   if (!Number.isInteger(workerConcurrency) || workerConcurrency < 1 || workerConcurrency > 10) throw new Error('WORKER_CONCURRENCY must be between 1 and 10');
   const reconcileIntervalMs = Number(env.INVESTIGATION_RECONCILE_INTERVAL_MS ?? 10000);
   if (!Number.isInteger(reconcileIntervalMs) || reconcileIntervalMs < 1000 || reconcileIntervalMs > 300000) throw new Error('INVESTIGATION_RECONCILE_INTERVAL_MS must be between 1000 and 300000');
-  return { nodeEnv, port, host, logLevel, databaseUrl, jwtSecret, redisUrl, cloudinary, uploadMaxBytes, workerConcurrency, reconcileIntervalMs };
+  if (env.RESEARCH_ENABLED && !['true', 'false'].includes(env.RESEARCH_ENABLED)) throw new Error('RESEARCH_ENABLED must be true or false');
+  const researchEnabled = env.RESEARCH_ENABLED === 'true';
+  const ultraSearchUrl = env.ULTRASEARCH_URL || undefined;
+  if (ultraSearchUrl) {
+    try {
+      const url = new URL(ultraSearchUrl);
+      if (!['http:', 'https:'].includes(url.protocol) || url.username || url.password || url.search || url.hash) throw new Error();
+    } catch { throw new Error('ULTRASEARCH_URL must be an HTTP(S) service URL without credentials or query parameters'); }
+  }
+  return { nodeEnv, port, host, logLevel, databaseUrl, jwtSecret, redisUrl, cloudinary, uploadMaxBytes, workerConcurrency, reconcileIntervalMs, researchEnabled, ultraSearchUrl };
 }
 
 export type AppConfig = ReturnType<typeof loadConfig>;

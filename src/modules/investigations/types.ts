@@ -20,7 +20,7 @@ export type Investigation = {
 };
 export type QueueState = 'waiting' | 'active' | 'completed' | 'failed' | 'delayed' | 'waiting-children' | 'unknown' | 'paused' | 'prioritized';
 export interface InvestigationJobs {
-  enqueue(id: string, restartFinished: boolean, revision: string): Promise<QueueState>;
+  enqueue(id: string, restartFinished: boolean, revision: string, continueCompleted?: boolean): Promise<QueueState>;
   ping(): Promise<void>;
   close(): Promise<void>;
 }

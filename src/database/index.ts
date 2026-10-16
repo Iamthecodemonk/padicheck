@@ -5,6 +5,7 @@ export interface SqlExecutor {
 }
 
 export interface Database extends SqlExecutor {
+  session<T>(work: (client: SqlExecutor) => Promise<T>): Promise<T>;
   transaction<T>(work: (client: SqlExecutor) => Promise<T>): Promise<T>;
   close(): Promise<void>;
 }
@@ -22,6 +23,10 @@ export function createDatabase(connectionString: string): Database {
   pool.on('error', () => console.error('An idle PostgreSQL connection failed'));
   return {
     query: (sql, values) => pool.query(sql, values),
+    async session(work) {
+      const client = await pool.connect();
+      try { return await work(client); } finally { client.release(); }
+    },
     async transaction(work) {
       const client = await pool.connect();
       try {
