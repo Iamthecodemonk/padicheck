@@ -49,7 +49,11 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env) {
   if (!Number.isSafeInteger(uploadMaxBytes) || uploadMaxBytes < 1 || uploadMaxBytes > 25 * 1024 * 1024) {
     throw new Error('MEDIA_MAX_BYTES must be an integer between 1 and 26214400');
   }
-  return { nodeEnv, port, host, logLevel, databaseUrl, jwtSecret, redisUrl, cloudinary, uploadMaxBytes };
+  const workerConcurrency = Number(env.WORKER_CONCURRENCY ?? 2);
+  if (!Number.isInteger(workerConcurrency) || workerConcurrency < 1 || workerConcurrency > 10) throw new Error('WORKER_CONCURRENCY must be between 1 and 10');
+  const reconcileIntervalMs = Number(env.INVESTIGATION_RECONCILE_INTERVAL_MS ?? 10000);
+  if (!Number.isInteger(reconcileIntervalMs) || reconcileIntervalMs < 1000 || reconcileIntervalMs > 300000) throw new Error('INVESTIGATION_RECONCILE_INTERVAL_MS must be between 1000 and 300000');
+  return { nodeEnv, port, host, logLevel, databaseUrl, jwtSecret, redisUrl, cloudinary, uploadMaxBytes, workerConcurrency, reconcileIntervalMs };
 }
 
 export type AppConfig = ReturnType<typeof loadConfig>;

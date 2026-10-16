@@ -1,7 +1,7 @@
 # PadiCheck backend
 
 Backend-only modular monolith using TypeScript and Fastify. Background workers
-will run separately and reuse the API's domain modules and provider adapters.
+run separately and reuse the API's domain modules and provider adapters.
 
 ## Current implementation
 
@@ -12,14 +12,16 @@ will run separately and reuse the API's domain modules and provider adapters.
 - Live server-side RBAC with suspension enforcement.
 - Superadmin-only role grants with transactional audit records.
 - Backend-controlled Cloudinary uploads, private delivery, and media lifecycle tracking.
+- Investigation creation, owner cancellation/retry, scoped reads, targets and identifiers.
+- BullMQ workers for collecting submitted source references, with durable PostgreSQL reconciliation.
 - Structured logging with authorization and cookie redaction.
 - Graceful shutdown.
 
 The supplied schema is present and copied unchanged to the baseline migration.
 The configured local database has been aligned with the supplied schema using
 the approved legacy migration. See [schema-alignment.md](docs/schema-alignment.md)
-for the inspection and application record. Investigations, workers, AI, and
-directory/moderation workflows remain later milestones.
+for the inspection and application record. Independent web research, AI analysis,
+findings, and directory/moderation workflows remain later milestones.
 
 ## Local setup
 
@@ -54,8 +56,9 @@ this environment uses port 5433. Set all of `CLOUDINARY_CLOUD_NAME`,
 `CLOUDINARY_API_KEY`, and `CLOUDINARY_API_SECRET` to enable uploads. Leave all three
 blank to keep auth available while media endpoints return 503. Partial credentials
 are rejected at startup. `/health` checks process liveness; `/ready` checks database
-connectivity, the auth/RBAC/media columns used by this milestone, and the token
-revocation store. Complete schema verification remains `npm run db:verify`.
+connectivity, the auth/RBAC/media/investigation/source columns used by this
+milestone, and the token revocation store. When Redis jobs are configured it also
+checks queue connectivity. Complete schema verification remains `npm run db:verify`.
 
 `REDIS_URL` enables shared token revocation and is required in production. Use
 persistent Redis with no key eviction to retain revoked tokens until their TTL
@@ -105,6 +108,12 @@ require external provider credentials.
 | GET | `/v1/media/:media_id` | Owner or `media.manage` |
 | POST | `/v1/media/:media_id/delivery` | Owner or `media.manage`; ready media only |
 | DELETE | `/v1/media/:media_id` | Owner or `media.manage`; unreferenced media only |
+| POST | `/v1/investigations` | `investigations.create`; returns 202 |
+| GET | `/v1/investigations` | Own scope by default; `scope=all` requires `investigations.read_all` |
+| GET | `/v1/investigations/:investigation_id` | Owner with `investigations.read_own`, or `investigations.read_all` |
+| GET | `/v1/investigations/:investigation_id/sources` | Same read permissions |
+| POST | `/v1/investigations/:investigation_id/cancel` | Owner with `investigations.create`; active requests only |
+| POST | `/v1/investigations/:investigation_id/retry` | Owner with `investigations.create`; failed requests only |
 
 Passwords must be 12–128 characters. Authentication endpoints allow 10 requests
 per minute per client IP in each API process. Use `Authorization: Bearer
@@ -154,6 +163,83 @@ uses Cloudinary's [time-limited download API](https://cloudinary.com/documentati
 
 See [milestone-1.md](docs/milestone-1.md) for changed files, verification commands,
 and provider-test limitations.
+
+## Investigations and source collection
+
+Example creation body:
+
+```json
+{
+  "investigation_type": "web_analysis",
+  "title": "Review Example",
+  "user_prompt": "Record these references for later investigation.",
+  "input_data": {
+    "urls": ["https://example.com/"],
+    "targets": [{
+      "entity_type": "website",
+      "canonical_name": "Example",
+      "target_role": "primary",
+      "identifiers": [{ "identifier_type": "domain", "value": "example.com" }]
+    }]
+  }
+}
+```
+
+Creation persists the investigation and target relationships in one transaction,
+then attempts job dispatch. The response includes `dispatch: "queued"` or
+`"deferred"`; deferred requests remain durable in PostgreSQL and are recovered by
+the worker reconciler. HTTP retries of the create endpoint create new requests;
+use the returned investigation ID for subsequent reads/cancellation/retry.
+
+Supported types are the six types in the supplied schema. `web_analysis` requires
+at least one URL, `contract_review` requires at least one `input_data.media_ids`
+document, and `phone_lookup` requires a target with a phone identifier. Phones
+must include an international country code, for example `+2348012345678`.
+Attachments must be ready authenticated documents owned by the requester. Up to
+10 URLs, 10 document IDs, and 10 targets (10 identifiers each) are accepted. The
+prompt limit is 10,000 characters, with a 64 KiB total creation-body limit.
+
+Submitted URLs and documents become private `sources` linked through
+`investigation_sources`, with `discovery_method = user_submission` and
+`used_in_analysis = false`. The collector records references and existing hashes;
+it does not fetch URLs, download documents, independently search, or run AI.
+Sources have no fabricated fetched timestamp, excerpt, or verification claim.
+
+The current lifecycle is `queued -> collecting_sources`, with explicit failure,
+owner retry (`failed -> queued`), and owner cancellation. After successful
+reference collection, status stays `collecting_sources` and detail responses
+include `source_collection_complete: true` plus the current capability limits.
+No investigation is marked `analyzing` or `completed` in this milestone. Read-all
+permission does not allow someone to cancel or retry another user's request.
+
+List requests support `limit` (1–100) and an opaque `cursor`; responses include
+`next_cursor`. Source lists support `limit` (1–100) and `offset` (0–10000).
+Creation, cancellation, and retry each allow 20 requests per minute per client IP
+per API process. All investigation responses use `Cache-Control: no-store`.
+
+Configure a working `REDIS_URL`, then run the API and worker in separate terminals:
+
+```powershell
+npm.cmd run dev
+```
+
+```powershell
+npm.cmd run worker:dev
+```
+
+For compiled deployment use `npm.cmd run build`, `npm.cmd start`, and
+`npm.cmd run worker:start`. `WORKER_CONCURRENCY` defaults to 2 (maximum 10).
+`INVESTIGATION_RECONCILE_INTERVAL_MS` defaults to 10000. Without Redis configured,
+the API can persist requests, but processing remains deferred; there is no
+automatic in-process queue fallback. `/ready` reports `background_jobs` as
+`unconfigured` in that mode. It checks connectivity when jobs are configured,
+not whether a separate worker process is currently running.
+
+The worker uses bounded retries, idempotent collection, row locks, and recovery
+scans in pages of 100. Job data contains an investigation ID and database revision,
+not prompts, uploaded bytes, source URLs, or credentials. See
+[milestone-2.md](docs/milestone-2.md) for schema mapping, recovery semantics, tests,
+and remaining integration limits.
 
 After registration, a database operator can bootstrap the first superadmin:
 

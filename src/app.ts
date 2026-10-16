@@ -12,9 +12,12 @@ import { memoryRevocations, redisRevocations, type TokenRevocations } from './mo
 import { cloudinaryStorage } from './adapters/cloudinary.js';
 import { mediaRoutes } from './modules/media/routes.js';
 import type { MediaStorage } from './modules/media/types.js';
+import { investigationRoutes } from './modules/investigations/routes.js';
+import { investigationJobs } from './adapters/investigation-jobs.js';
+import type { InvestigationJobs } from './modules/investigations/types.js';
 
 export function buildApp(config: AppConfig, database?: Database,
-  dependencies: { storage?: MediaStorage; revocations?: TokenRevocations } = {}) {
+  dependencies: { storage?: MediaStorage; revocations?: TokenRevocations; jobs?: InvestigationJobs } = {}) {
   const app = Fastify({
     logger: {
       level: config.logLevel,
@@ -35,6 +38,8 @@ export function buildApp(config: AppConfig, database?: Database,
   const revocations = dependencies.revocations ?? (config.redisUrl ? redisRevocations(config.redisUrl) : memoryRevocations());
   if (!dependencies.revocations) app.addHook('onClose', async () => revocations.close());
   const storage = dependencies.storage ?? (config.cloudinary ? cloudinaryStorage(config.cloudinary) : undefined);
+  const jobs = dependencies.jobs ?? (config.redisUrl ? investigationJobs(config.redisUrl) : undefined);
+  if (jobs && !dependencies.jobs) app.addHook('onClose', async () => jobs.close());
 
   app.setErrorHandler((error, request, reply) => {
     if (error instanceof ApiError) {
@@ -59,8 +64,13 @@ export function buildApp(config: AppConfig, database?: Database,
         m.provider_resource_type, m.provider_delivery_type, m.provider_version, m.upload_status
         FROM users u, user_auth_accounts a, roles r, user_roles ur,
         permissions p, role_permissions rp, media_files m LIMIT 0`);
+      await db.query(`SELECT i.investigation_id, i.user_id, i.status, i.input_data, e.entity_id,
+        ident.identifier_id, target.investigation_target_id, s.source_id, link.used_in_analysis
+        FROM investigations i, entities e, identifiers ident, investigation_targets target,
+        sources s, investigation_sources link LIMIT 0`);
       await revocations.ping();
-      return { status: 'ready' };
+      if (jobs) await jobs.ping();
+      return { status: 'ready', background_jobs: jobs ? 'configured' : 'unconfigured' };
     } catch {
       return reply.code(503).send({ status: 'unavailable' });
     }
@@ -78,6 +88,7 @@ export function buildApp(config: AppConfig, database?: Database,
     await authRoutes(api, db, access, revocations);
     await adminRoutes(api, db, access);
     await mediaRoutes(api, db, access, storage, config.uploadMaxBytes);
+    await investigationRoutes(api, db, access, jobs);
   });
 
   return app;
