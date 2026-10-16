@@ -299,6 +299,52 @@ npm.cmd run admin:bootstrap -- owner@example.com
 The command refuses an existing superadmin and writes an audit entry. Subsequent
 role grants require an authenticated superadmin and are audited atomically.
 
+## Business directory and trust workflows
+
+The backend now supports published directory listings, private verification
+evidence and staff-reviewed business claims, user-submitted reports, moderation,
+and disputes. Publication and claim approval are separate permission-controlled,
+audited actions. Public reports remain labeled allegations; private evidence is
+delivered only through authenticated media endpoints to owners and authorized
+reviewers.
+
+See [milestone 4](docs/milestone-4.md) for endpoint payloads, permissions,
+transitions, privacy rules, schema mappings and limits. To check the workflows and
+concurrency against an isolated temporary PostgreSQL database:
+
+```powershell
+npm.cmd run trust:smoke
+```
+
+This requires CREATEDB permission, removes only its generated scratch database,
+and makes no external provider calls.
+
+## Investigation sharing
+
+Owners can create expiring, revocable capabilities for completed investigation
+results. Creation requires acknowledgment that summaries and finding text may
+contain sensitive information. Secrets are returned once, stored only as hashes,
+and redeemed in a POST body; the shared response excludes private evidence files,
+prompts, inputs, account details and model runs.
+
+See [milestone 5](docs/milestone-5.md) for endpoint payloads, expiration limits,
+privacy rules and concurrency guarantees. Run `npm.cmd run sharing:smoke` for
+the isolated live PostgreSQL concurrency check (requires CREATEDB, removes its
+generated database, makes no external provider calls).
+
+## Deployment and integration checks
+
+See the [deployment runbook](docs/deployment.md) for production configuration,
+separate API/worker processes, database release steps, health checks, trusted
+proxies and graceful shutdown. Production starts only after dependency readiness;
+enabled research also needs configured providers and an active registry.
+
+Run `npm.cmd run integrations:check` for sanitized connectivity/configuration
+statuses, or add `-- --require-all` to fail on missing services too. Checks use
+provider metadata and one synthetic public search; they do not run Gemini
+inference or upload files. The [milestone 6 report](docs/milestone-6.md) records
+validation and the live integrations still awaiting configuration.
+
 ## Planned modules and implementation order
 
 1. Review the complete SQL schema; document exact feature-to-column mappings.

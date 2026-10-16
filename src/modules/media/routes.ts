@@ -22,6 +22,17 @@ export async function mediaRoutes(app: FastifyInstance, db: Database, access: Au
     }
   }
 
+  async function checkReadable(row: MediaRow | undefined, principal: Principal): Promise<void> {
+    if (!row) throw new ApiError(404, 'media_not_found', 'Media was not found');
+    if (row.uploaded_by_user_id === principal.users_id || access.can(principal, 'media.manage')) return;
+    const linked = await db.query(`SELECT 1 WHERE
+      ($2::boolean AND EXISTS (SELECT 1 FROM verification_evidence WHERE media_id = $1)) OR
+      ($3::boolean AND EXISTS (SELECT 1 FROM user_report_evidence WHERE media_id = $1))`,
+    [row.media_id, access.can(principal, 'verifications.review'),
+      access.can(principal, 'reports.moderate') || access.can(principal, 'disputes.resolve')]);
+    if (!linked.rowCount) throw new ApiError(404, 'media_not_found', 'Media was not found');
+  }
+
   app.post('/v1/media', {
     onRequest: access.authenticate,
     config: { rateLimit: { max: 20, timeWindow: '1 minute' } },
@@ -78,7 +89,7 @@ export async function mediaRoutes(app: FastifyInstance, db: Database, access: Au
   }, async (request, reply) => {
     const result = await db.query<MediaRow>('SELECT * FROM media_files WHERE media_id = $1', [request.params.media_id]);
     const row = result.rows[0];
-    checkOwner(row, request.principal!);
+    await checkReadable(row, request.principal!);
     reply.header('Cache-Control', 'no-store');
     return { media: row };
   });
@@ -88,7 +99,8 @@ export async function mediaRoutes(app: FastifyInstance, db: Database, access: Au
   }, async (request, reply) => {
     const result = await db.query<MediaRow>('SELECT * FROM media_files WHERE media_id = $1', [request.params.media_id]);
     const row = result.rows[0];
-    checkOwner(row, request.principal!);
+    await checkReadable(row, request.principal!);
+    if (!row) throw new ApiError(404, 'media_not_found', 'Media was not found');
     if (row.upload_status !== 'ready') throw new ApiError(409, 'media_not_ready', 'Media is not available for delivery');
     if (row.storage_provider !== 'cloudinary' || row.provider_delivery_type !== 'authenticated') {
       throw new ApiError(409, 'unsupported_storage', 'Stored media delivery configuration is unsupported');

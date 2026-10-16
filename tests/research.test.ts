@@ -6,7 +6,7 @@ import { collectSubmittedSources } from '../src/modules/investigations/collector
 import { createInvestigation } from '../src/modules/investigations/service.js';
 import { runResearch } from '../src/modules/research/pipeline.js';
 import { ResearchError, type ResearchAdapters, type Evidence } from '../src/modules/research/types.js';
-import { buildApp } from '../src/app.js';
+import { buildTestApp as buildApp, completeRegistration } from './support/auth.js';
 import { loadConfig } from '../src/config.js';
 import { hashContent } from '../src/adapters/research.js';
 
@@ -16,9 +16,9 @@ const config = loadConfig({ NODE_ENV: 'test', LOG_LEVEL: 'silent', DATABASE_URL:
 test('registry-driven research, priority fallback, evidence, and cancellation', async t => {
   const { db, postgres } = await testDatabase();
   const app = buildApp(config, db);
-  const registration = await app.inject({ method: 'POST', url: '/v1/auth/register', payload: {
+  const registration = await completeRegistration(app,{
     email: 'research@example.com', display_name: 'Research user', password: 'Research password long enough',
-  } });
+  });
   assert.equal(registration.statusCode, 201, registration.body);
   const ownerId = registration.json().user.users_id as string;
   const token = registration.json().access_token as string;
@@ -165,7 +165,7 @@ test('registry-driven research, priority fallback, evidence, and cancellation', 
       assert.equal((await db.query("SELECT 1 FROM model_runs WHERE investigation_id = $1 AND status = 'succeeded'", [id])).rows.length, 0);
     });
     await t.test('findings retain investigation ownership protections', async () => {
-      const other = await app.inject({ method: 'POST', url: '/v1/auth/register', payload: { email: 'other-research@example.com', display_name: 'Other', password: 'Research password long enough' } });
+      const other = await completeRegistration(app,{ email: 'other-research@example.com', display_name: 'Other', password: 'Research password long enough' });
       assert.equal((await app.inject({ method: 'GET', url: `/v1/investigations/${currentId}/findings`, headers: { authorization: `Bearer ${other.json().access_token}` } })).statusCode, 404);
     });
   } finally { await app.close(); await db.close(); }

@@ -16,18 +16,32 @@ import { investigationRoutes } from './modules/investigations/routes.js';
 import { investigationJobs } from './adapters/investigation-jobs.js';
 import type { InvestigationJobs } from './modules/investigations/types.js';
 import { researchAdminRoutes } from './modules/research/admin-routes.js';
+import { directoryRoutes } from './modules/directory/routes.js';
+import { trustRoutes } from './modules/trust/routes.js';
+import { sharingRoutes } from './modules/sharing/routes.js';
+import { databaseReadiness, researchReadiness } from './runtime/readiness.js';
+import { redisAuthChallenges } from './adapters/auth-challenges.js';
+import { smtpMailer } from './adapters/smtp.js';
+import { googleIdentity } from './adapters/google-identity.js';
+import type { AuthDependencies } from './modules/auth/identity-types.js';
 
 export function buildApp(config: AppConfig, database?: Database,
-  dependencies: { storage?: MediaStorage; revocations?: TokenRevocations; jobs?: InvestigationJobs } = {}) {
+  dependencies: { storage?: MediaStorage; revocations?: TokenRevocations; jobs?: InvestigationJobs; auth?: AuthDependencies } = {}) {
   const app = Fastify({
     logger: {
       level: config.logLevel,
+      serializers: { req: (request: { method?: string; url?: string; hostname?: string; ip?: string }) => ({
+        method: request.method, url: request.url?.split('?')[0], hostname: request.hostname, remoteAddress: request.ip,
+      }) },
       redact: {
         paths: ['req.headers.authorization', 'req.headers.cookie', 'res.headers["set-cookie"]'],
         censor: '[REDACTED]',
       },
     },
     bodyLimit: 1024 * 1024,
+    trustProxy: config.trustProxy,
+    requestTimeout: config.requestTimeoutMs,
+    forceCloseConnections: 'idle',
     ajv: { customOptions: { removeAdditional: false } },
   });
 
@@ -35,12 +49,31 @@ export function buildApp(config: AppConfig, database?: Database,
   app.get('/health', async () => ({ status: 'ok', service: 'padicheck-backend' }));
 
   const db = database ?? createDatabase(config.databaseUrl);
-  if (!database) app.addHook('onClose', async () => db.close());
   const revocations = dependencies.revocations ?? (config.redisUrl ? redisRevocations(config.redisUrl) : memoryRevocations());
-  if (!dependencies.revocations) app.addHook('onClose', async () => revocations.close());
   const storage = dependencies.storage ?? (config.cloudinary ? cloudinaryStorage(config.cloudinary) : undefined);
   const jobs = dependencies.jobs ?? (config.redisUrl ? investigationJobs(config.redisUrl) : undefined);
-  if (jobs && !dependencies.jobs) app.addHook('onClose', async () => jobs.close());
+  const identity:AuthDependencies={
+    challenges:dependencies.auth?.challenges??(config.redisUrl?redisAuthChallenges(config.redisUrl):undefined),
+    mailer:dependencies.auth?.mailer??(config.smtp?smtpMailer(config.smtp):undefined),
+    google:dependencies.auth?.google??(config.googleClientId?googleIdentity(config.googleClientId):undefined),
+  };
+  app.addHook('onClose', async () => {
+    const results = await Promise.allSettled([
+      ...(!dependencies.jobs && jobs ? [Promise.resolve().then(()=>jobs.close())] : []),
+      ...(!dependencies.revocations ? [Promise.resolve().then(()=>revocations.close())] : []),
+      ...(!database ? [Promise.resolve().then(()=>db.close())] : []),
+      ...(!dependencies.auth?.challenges&&identity.challenges?[identity.challenges.close()]:[]),
+      ...(!dependencies.auth?.mailer&&identity.mailer?[Promise.resolve().then(()=>identity.mailer!.close())]:[]),
+    ]);
+    if (results.some(result => result.status === 'rejected')) throw new Error('Resource cleanup failed');
+  });
+  let draining = false;
+  app.addHook('preClose', async () => { draining = true; });
+  app.addHook('onSend', async (request, reply, payload) => {
+    if (draining) reply.header('Connection','close');
+    if (['/health','/ready'].includes(request.url.split('?')[0]!)) reply.header('Cache-Control','no-store');
+    return payload;
+  });
 
   app.setErrorHandler((error, request, reply) => {
     if (error instanceof ApiError) {
@@ -60,22 +93,14 @@ export function buildApp(config: AppConfig, database?: Database,
 
   app.get('/ready', async (_request, reply) => {
     try {
-      await db.query(`SELECT u.users_id, a.auth_account_id, r.role_id, ur.users_id,
-        p.permission_id, rp.role_id, m.provider_asset_id, m.provider_public_id,
-        m.provider_resource_type, m.provider_delivery_type, m.provider_version, m.upload_status
-        FROM users u, user_auth_accounts a, roles r, user_roles ur,
-        permissions p, role_permissions rp, media_files m LIMIT 0`);
-      await db.query(`SELECT i.investigation_id, i.user_id, i.status, i.input_data, e.entity_id,
-        ident.identifier_id, target.investigation_target_id, s.source_id, link.used_in_analysis
-        FROM investigations i, entities e, identifiers ident, investigation_targets target,
-        sources s, investigation_sources link LIMIT 0`);
-      await db.query(`SELECT p.provider_id, m.provider_model_id, a.instructions_template, task.task_code, tool.tool_code,
-        agent_tool.is_enabled, assignment.priority, run.prompt_version, finding.verification_status, evidence.source_id
-        FROM ai_providers p, ai_models m, ai_agents a, ai_task_types task, ai_tools tool, ai_agent_tools agent_tool,
-        ai_task_assignments assignment, model_runs run, findings finding, finding_sources evidence LIMIT 0`);
+      await databaseReadiness(db);
+      await researchReadiness(db,config);
       await revocations.ping();
       if (jobs) await jobs.ping();
-      return { status: 'ready', background_jobs: jobs ? 'configured' : 'unconfigured' };
+      if(identity.challenges&&(identity.mailer||identity.google))await identity.challenges.ping();
+      return { status: 'ready', background_jobs: jobs ? 'configured' : 'unconfigured',
+        media_storage: storage ? 'configured' : 'unconfigured', research: config.researchEnabled ? 'enabled' : 'disabled',
+        email_signup:identity.mailer&&identity.challenges?'configured':'unconfigured',google_signin:identity.google&&identity.challenges?'configured':'unconfigured' };
     } catch {
       return reply.code(503).send({ status: 'unavailable' });
     }
@@ -90,11 +115,14 @@ export function buildApp(config: AppConfig, database?: Database,
     await api.register(rateLimit, { global: false });
     await api.register(multipart, { limits: { files: 1, fields: 0, parts: 1, fileSize: config.uploadMaxBytes } });
     const access = authorization(api, db, revocations);
-    await authRoutes(api, db, access, revocations);
+    await authRoutes(api, db, access, revocations, identity, config.jwtSecret);
     await adminRoutes(api, db, access);
     await researchAdminRoutes(api, db, access);
     await mediaRoutes(api, db, access, storage, config.uploadMaxBytes);
     await investigationRoutes(api, db, access, jobs, config.researchEnabled);
+    await directoryRoutes(api, db, access);
+    await trustRoutes(api, db, access);
+    await sharingRoutes(api, db, access);
   });
 
   return app;

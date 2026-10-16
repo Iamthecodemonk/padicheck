@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import { randomUUID } from 'node:crypto';
 import { test } from 'node:test';
-import { buildApp } from '../src/app.js';
+import { buildTestApp as buildApp, completeRegistration } from './support/auth.js';
 import { loadConfig } from '../src/config.js';
 import { collectSubmittedSources } from '../src/modules/investigations/collector.js';
 import { processCollectionJob } from '../src/modules/investigations/process-job.js';
@@ -27,7 +27,7 @@ test('investigation APIs, durable dispatch, and reference collection', async t =
   };
   const app = buildApp(config, db, { jobs });
   const account = async (email: string) => {
-    const result = await app.inject({ method: 'POST', url: '/v1/auth/register', payload: { email, display_name: email.split('@')[0], password: 'Investigation test password long' } });
+    const result = await completeRegistration(app,{ email, display_name: email.split('@')[0]!, password: 'Investigation test password long' });
     assert.equal(result.statusCode, 201, result.body);
     return { id: result.json().user.users_id as string, token: result.json().access_token as string };
   };

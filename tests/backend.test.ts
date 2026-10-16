@@ -3,7 +3,7 @@ import { readFile } from 'node:fs/promises';
 import { test } from 'node:test';
 import { PGlite } from '@electric-sql/pglite';
 import type { QueryResult, QueryResultRow } from 'pg';
-import { buildApp } from '../src/app.js';
+import { buildTestApp as buildApp, completeRegistration } from './support/auth.js';
 import { loadConfig } from '../src/config.js';
 import type { Database, SqlExecutor } from '../src/database/index.js';
 
@@ -44,7 +44,7 @@ test('supplied schema and authentication integration', async t => {
       await assert.rejects(db.query("INSERT INTO media_files (provider_public_id, provider_resource_type, original_filename, media_type, mime_type, size_bytes) VALUES ('test', 'invalid', 'file', 'document', 'application/pdf', 10)"));
     });
     await t.test('register grants default role and stores only a password hash', async () => {
-      const res = await app.inject({ method: 'POST', url: '/v1/auth/register', payload: { display_name: 'Ada', email: 'Ada@example.com', password } });
+      const res = await completeRegistration(app,{ display_name: 'Ada', email: 'Ada@example.com', password });
       assert.equal(res.statusCode, 201, res.body);
       token = res.json().access_token;
       userId = res.json().user.users_id;
@@ -57,9 +57,9 @@ test('supplied schema and authentication integration', async t => {
       assert.deepEqual(me.json().user.roles, ['user']);
       assert.ok(me.json().user.permissions.includes('investigations.create'));
     });
-    await t.test('case-insensitive duplicate email rolls back registration', async () => {
+    await t.test('case-insensitive duplicate email does not enumerate accounts or create identities', async () => {
       const res = await app.inject({ method: 'POST', url: '/v1/auth/register', payload: { display_name: 'Other', email: 'ada@example.com', password } });
-      assert.equal(res.statusCode, 409, res.body);
+      assert.equal(res.statusCode, 429, res.body);
       assert.equal((await db.query('SELECT * FROM users')).rows.length, 1);
       assert.equal((await db.query('SELECT * FROM user_auth_accounts')).rows.length, 1);
     });

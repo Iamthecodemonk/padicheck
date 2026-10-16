@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
-import { buildApp } from '../src/app.js';
+import { buildTestApp as buildApp, completeRegistration } from './support/auth.js';
 import { loadConfig } from '../src/config.js';
 import { memoryRevocations } from '../src/modules/auth/revocations.js';
 import { testDatabase } from './support/database.js';
@@ -16,7 +16,7 @@ test('logout revokes only the submitted token across instances sharing a store',
   const second = buildApp(config, db, { revocations });
   try {
     const credentials = { email: 'logout@example.com', password: 'Logout password long enough' };
-    const registration = await app.inject({ method: 'POST', url: '/v1/auth/register', payload: { ...credentials, display_name: 'Logout test' } });
+    const registration = await completeRegistration(app,{ ...credentials, display_name: 'Logout test' });
     assert.equal(registration.statusCode, 201);
     const login = await app.inject({ method: 'POST', url: '/v1/auth/login', payload: credentials });
     assert.equal(login.statusCode, 200);

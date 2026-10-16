@@ -1,0 +1,19 @@
+import 'dotenv/config';
+import { loadConfig } from '../src/config.js';
+import { createDatabase, type Database } from '../src/database/index.js';
+import { checkIntegrations, integrationProbes } from '../src/runtime/integrations.js';
+
+let db:Database|undefined;
+const fuse=setTimeout(()=>{console.error('Integration checks exceeded their deadline');process.exit(1);},180000);
+fuse.unref();
+try{
+  const args=process.argv.slice(2);
+  if(args.some(arg=>arg!=='--require-all'))throw new Error('Unsupported check option');
+  const config=loadConfig();
+  db=createDatabase(config.databaseUrl);
+  const results=await checkIntegrations(config,integrationProbes(config,db));
+  const complete=results.every(result=>result.status==='passed');
+  console.log(JSON.stringify({fully_configured:complete,checks:results},null,2));
+  if(results.some(result=>result.status==='failed')||(args.includes('--require-all')&&!complete))process.exitCode=1;
+}catch{console.error('Integration checks could not run; check environment configuration and options');process.exitCode=1;}
+finally{try{if(db)await db.close();}finally{clearTimeout(fuse);}}

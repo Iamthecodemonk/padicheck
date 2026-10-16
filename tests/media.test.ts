@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import { createHash, randomUUID } from 'node:crypto';
 import { test } from 'node:test';
-import { buildApp } from '../src/app.js';
+import { buildTestApp as buildApp, completeRegistration } from './support/auth.js';
 import { loadConfig } from '../src/config.js';
 import type { MediaStorage, UploadSpec } from '../src/modules/media/types.js';
 import { cloudinaryStorage } from '../src/adapters/cloudinary.js';
@@ -43,7 +43,7 @@ test('media upload and access integration against the supplied schema', async t 
   };
   const app = buildApp(config, db, { storage });
   const register = async (email: string) => {
-    const res = await app.inject({ method: 'POST', url: '/v1/auth/register', payload: { email, display_name: 'Upload user', password: 'Upload test password long' } });
+    const res = await completeRegistration(app,{ email, display_name: 'Upload user', password: 'Upload test password long' });
     assert.equal(res.statusCode, 201, res.body);
     return { token: res.json().access_token as string, id: res.json().user.users_id as string };
   };

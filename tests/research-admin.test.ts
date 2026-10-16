@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
-import { buildApp } from '../src/app.js';
+import { buildTestApp as buildApp, completeRegistration } from './support/auth.js';
 import { loadConfig } from '../src/config.js';
 import { testDatabase } from './support/database.js';
 
@@ -9,7 +9,7 @@ const config = loadConfig({ NODE_ENV: 'test', LOG_LEVEL: 'silent', DATABASE_URL:
 test('AI registry APIs enforce permissions, safe configuration and auditing', async t => {
   const { db, postgres } = await testDatabase();
   const app = buildApp(config, db);
-  const registration = await app.inject({ method: 'POST', url: '/v1/auth/register', payload: { email: 'registry@example.com', display_name: 'Registry user', password: 'Registry test password long' } });
+  const registration = await completeRegistration(app,{ email: 'registry@example.com', display_name: 'Registry user', password: 'Registry test password long' });
   const userId = registration.json().user.users_id as string;
   const headers = { authorization: `Bearer ${registration.json().access_token}` };
   const post = (name: string, payload: Record<string, unknown>) => app.inject({ method: 'POST', url: `/v1/admin/ai/${name}`, headers, payload });

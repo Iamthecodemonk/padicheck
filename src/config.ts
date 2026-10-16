@@ -1,3 +1,5 @@
+import { isIP } from 'node:net';
+
 export function loadConfig(env: NodeJS.ProcessEnv = process.env) {
   const nodeEnv = env.NODE_ENV ?? 'development';
   if (!['development', 'test', 'production'].includes(nodeEnv)) {
@@ -62,7 +64,52 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env) {
       if (!['http:', 'https:'].includes(url.protocol) || url.username || url.password || url.search || url.hash) throw new Error();
     } catch { throw new Error('ULTRASEARCH_URL must be an HTTP(S) service URL without credentials or query parameters'); }
   }
-  return { nodeEnv, port, host, logLevel, databaseUrl, jwtSecret, redisUrl, cloudinary, uploadMaxBytes, workerConcurrency, reconcileIntervalMs, researchEnabled, ultraSearchUrl };
+  const milliseconds = (name: string, fallback: number, maximum: number) => {
+    const raw = env[name] ?? String(fallback);
+    const value = Number(raw);
+    if (!/^\d+$/.test(raw) || !Number.isInteger(value) || value < 1000 || value > maximum) throw new Error(`${name} is outside its supported millisecond range`);
+    return value;
+  };
+  const startupTimeoutMs = milliseconds('STARTUP_TIMEOUT_MS', 30000, 120000);
+  const shutdownTimeoutMs = milliseconds('SHUTDOWN_TIMEOUT_MS', 180000, 600000);
+  const requestTimeoutMs = milliseconds('REQUEST_TIMEOUT_MS', 65000, 120000);
+  let trustProxy: false | string[] = false;
+  if (env.TRUST_PROXY) {
+    const entries = env.TRUST_PROXY.split(',').map(value => value.trim());
+    if (entries.length > 16 || entries.some(value => {
+      const [address, prefix, extra] = value.split('/');
+      const family = isIP(address ?? '');
+      return !family || extra !== undefined || (prefix !== undefined &&
+        (!/^\d+$/.test(prefix) || Number(prefix) > (family === 4 ? 32 : 128)));
+    })) throw new Error('TRUST_PROXY must be a comma-separated list of trusted IP addresses or CIDRs');
+    trustProxy = entries;
+  }
+  const geminiConfigured = Boolean(env.GEMINI_API_KEY?.trim());
+  const smtpValues=[env.SMTP_HOST,env.SMTP_FROM,env.SMTP_USER,env.SMTP_PASSWORD,env.SMTP_PORT,env.SMTP_SECURE];
+  let smtp: {host:string;from:string;port:number;secure:boolean;user?:string;password?:string}|undefined;
+  if(smtpValues.some(Boolean)){
+    if(!env.SMTP_HOST?.trim()||!env.SMTP_FROM||!/^\S+@[^\s@]+\.[^\s@]+$/.test(env.SMTP_FROM)||/[\r\n]/.test(env.SMTP_HOST))throw new Error('SMTP_HOST and a valid SMTP_FROM are required');
+    if(Boolean(env.SMTP_USER)!==Boolean(env.SMTP_PASSWORD))throw new Error('Set both SMTP_USER and SMTP_PASSWORD');
+    const smtpPort=Number(env.SMTP_PORT??587);
+    if(!Number.isInteger(smtpPort)||smtpPort<1||smtpPort>65535)throw new Error('SMTP_PORT must be a valid port');
+    if(env.SMTP_SECURE&&!['true','false'].includes(env.SMTP_SECURE))throw new Error('SMTP_SECURE must be true or false');
+    smtp={host:env.SMTP_HOST.trim(),from:env.SMTP_FROM,port:smtpPort,secure:env.SMTP_SECURE?env.SMTP_SECURE==='true':smtpPort===465,
+      user:env.SMTP_USER||undefined,password:env.SMTP_PASSWORD||undefined};
+  }
+  const googleClientId=env.GOOGLE_CLIENT_ID?.trim()||undefined;
+  if(googleClientId&&!/^[a-z0-9._-]+\.apps\.googleusercontent\.com$/i.test(googleClientId))throw new Error('GOOGLE_CLIENT_ID must be a Google OAuth client ID');
+  if (nodeEnv === 'production' && researchEnabled && (!ultraSearchUrl || !geminiConfigured)) {
+    throw new Error('Enabled production research requires ULTRASEARCH_URL and GEMINI_API_KEY');
+  }
+  return { nodeEnv, port, host, logLevel, databaseUrl, jwtSecret, redisUrl, cloudinary, uploadMaxBytes, workerConcurrency, reconcileIntervalMs,
+    researchEnabled, ultraSearchUrl, geminiConfigured, startupTimeoutMs, shutdownTimeoutMs, requestTimeoutMs, trustProxy, smtp, googleClientId };
 }
 
 export type AppConfig = ReturnType<typeof loadConfig>;
+
+export function validateWorkerConfig(config: AppConfig) {
+  if (!config.redisUrl) throw new Error('REDIS_URL is required to run the source-collection worker');
+  if (config.researchEnabled && (!config.ultraSearchUrl || !config.geminiConfigured)) {
+    throw new Error('Enabled worker research requires ULTRASEARCH_URL and GEMINI_API_KEY');
+  }
+}

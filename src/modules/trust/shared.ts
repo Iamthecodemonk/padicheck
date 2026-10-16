@@ -39,6 +39,13 @@ export function noSelfReview(request: FastifyRequest, owner: unknown) {
   if (owner === request.principal!.users_id) throw new ApiError(403, 'self_review_forbidden', 'You cannot review your own submission');
 }
 
+export async function noBusinessConflict(client: SqlExecutor, entityId: string, userId: string) {
+  // Hold a shared profile lock so a concurrent claim decision cannot change the
+  // ownership check before the moderation transaction commits.
+  const profile = (await client.query('SELECT claimed_by_user_id FROM business_profiles WHERE entity_id = $1 FOR SHARE', [entityId])).rows[0];
+  if (profile?.claimed_by_user_id === userId) throw new ApiError(403, 'self_review_forbidden', 'Business owners cannot review reports or disputes about their business');
+}
+
 export const reportTransitions = { submitted: ['under_review', 'published', 'rejected'], under_review: ['published', 'rejected'], published: ['under_review', 'rejected'] };
 export const verificationTransitions = { pending: ['in_review', 'approved', 'rejected'], in_review: ['approved', 'rejected'] };
 export const disputeTransitions = { submitted: ['under_review', 'resolved', 'rejected'], under_review: ['resolved', 'rejected'] };

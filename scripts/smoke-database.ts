@@ -2,7 +2,7 @@ import 'dotenv/config';
 import assert from 'node:assert/strict';
 import { randomBytes } from 'node:crypto';
 import pg from 'pg';
-import { buildApp } from '../src/app.js';
+import { buildTestApp as buildApp, completeRegistration } from '../tests/support/auth.js';
 import { loadConfig } from '../src/config.js';
 import type { Database } from '../src/database/index.js';
 import { collectSubmittedSources } from '../src/modules/investigations/collector.js';
@@ -40,8 +40,7 @@ try {
   try {
     const password = randomBytes(24).toString('base64url');
     const email = `smoke-${randomBytes(12).toString('hex')}@example.com`;
-    const registration = await app.inject({ method: 'POST', url: '/v1/auth/register',
-      payload: { display_name: 'Temporary smoke test', email, password } });
+    const registration = await completeRegistration(app,{ display_name: 'Temporary smoke test', email, password });
     assert.equal(registration.statusCode, 201, 'Registration failed');
     const login = await app.inject({ method: 'POST', url: '/v1/auth/login', payload: { email, password } });
     assert.equal(login.statusCode, 200, 'Login failed');
