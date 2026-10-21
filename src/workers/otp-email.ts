@@ -43,8 +43,8 @@ async function main() {
       logger.info({ result, elapsed_ms: Date.now() - started, queue_wait_ms: Math.max(0, started - job.timestamp) }, 'OTP email job completed');
     }, { connection: queueConnection(config.redisUrl, true), concurrency: 2, autorun: false });
     worker.on('error', () => logger.error('Email worker connection error'));
-    worker.on('failed', job => logger.warn({ attempts: job?.attemptsMade,
-      exhausted: (job?.attemptsMade ?? 0) >= (job?.opts.attempts ?? 1) }, 'OTP email delivery attempt failed'));
+    worker.on('failed', (job, error) => logger.warn({ attempts: job?.attemptsMade,
+      exhausted: error instanceof UnrecoverableError || (job?.attemptsMade ?? 0) >= (job?.opts.attempts ?? 1) }, 'OTP email delivery attempt failed'));
     await deadline(worker.waitUntilReady(), config.startupTimeoutMs);
     if (closing) { await worker.close(); return; }
     void worker.run().catch(() => { logger.error('Email worker stopped'); process.exitCode = 1; void shutdown(); });

@@ -97,6 +97,11 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env) {
       user:env.SMTP_USER||undefined,password:env.SMTP_PASSWORD||undefined};
   }
   const googleClientId=env.GOOGLE_CLIENT_ID?.trim()||undefined;
+  if (env.PLATFORM_EXTENSIONS_ENABLED && !['true','false'].includes(env.PLATFORM_EXTENSIONS_ENABLED)) throw new Error('PLATFORM_EXTENSIONS_ENABLED must be true or false');
+  const platformEnabled = env.PLATFORM_EXTENSIONS_ENABLED === 'true';
+  const accountEncryptionKey = env.ACCOUNT_ENCRYPTION_KEY || undefined;
+  if (accountEncryptionKey && !/^[a-f0-9]{64}$/i.test(accountEncryptionKey)) throw new Error('ACCOUNT_ENCRYPTION_KEY must be 32 random bytes encoded as hex');
+  if (platformEnabled && !accountEncryptionKey) throw new Error('Enabled platform extensions require ACCOUNT_ENCRYPTION_KEY');
   if(googleClientId&&!/^[a-z0-9._-]+\.apps\.googleusercontent\.com$/i.test(googleClientId))throw new Error('GOOGLE_CLIENT_ID must be a Google OAuth client ID');
   if (nodeEnv === 'production' && researchEnabled && (!ultraSearchUrl || !geminiConfigured)) {
     throw new Error('Enabled production research requires ULTRASEARCH_URL and GEMINI_API_KEY');
@@ -120,7 +125,7 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env) {
   }
   return { nodeEnv, port, host, logLevel, databaseUrl, jwtSecret, redisUrl, cloudinary, uploadMaxBytes, workerConcurrency, reconcileIntervalMs,
     researchEnabled, ultraSearchUrl, geminiConfigured, startupTimeoutMs, shutdownTimeoutMs, requestTimeoutMs, trustProxy, smtp, googleClientId,
-    billingEnabled, bachsEnvironment: bachsEnvironment as 'sandbox'|'production', bachs };
+    billingEnabled, bachsEnvironment: bachsEnvironment as 'sandbox'|'production', bachs, platformEnabled, accountEncryptionKey };
 }
 
 export type AppConfig = ReturnType<typeof loadConfig>;

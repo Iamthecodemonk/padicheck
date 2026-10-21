@@ -30,6 +30,11 @@ import { billingRoutes } from './modules/billing/routes.js';
 import { consumeUnit, billingReadiness } from './modules/billing/service.js';
 import { bachsProvider } from './adapters/bachs.js';
 import type { BillingProvider } from './modules/billing/types.js';
+import { securityRoutes } from './modules/auth/security-routes.js';
+import { platformRoutes } from './modules/platform/routes.js';
+import { teamRoutes } from './modules/platform/teams.js';
+import { apiKeyRoutes } from './modules/platform/api-keys.js';
+import { platformReadiness } from './modules/platform/schema.js';
 
 export function buildApp(config: AppConfig, database?: Database,
   dependencies: { storage?: MediaStorage; revocations?: TokenRevocations; jobs?: InvestigationJobs; auth?: AuthDependencies; billing?:BillingProvider } = {}) {
@@ -50,6 +55,7 @@ export function buildApp(config: AppConfig, database?: Database,
   const jobs = dependencies.jobs ?? (config.redisUrl ? investigationJobs(config.redisUrl) : undefined);
   const billing=dependencies.billing??(config.bachs?bachsProvider(config.bachs):undefined);
   const identity:AuthDependencies={
+    platformEnabled:config.platformEnabled,
     challenges:dependencies.auth?.challenges??(config.redisUrl?redisAuthChallenges(config.redisUrl):undefined),
     mailer:dependencies.auth?.mailer??(config.smtp&&config.redisUrl?queuedOtpMailer(config.redisUrl,config.jwtSecret):undefined),
     google:dependencies.auth?.google??(config.googleClientId?googleIdentity(config.googleClientId):undefined),
@@ -96,6 +102,7 @@ export function buildApp(config: AppConfig, database?: Database,
         await databaseReadiness(db);
         await researchReadiness(db,config);
         if(config.billingEnabled)await billingReadiness(db);
+        if(config.platformEnabled)await platformReadiness(db);
         await revocations.ping();
         if (jobs) await jobs.ping();
         if(identity.challenges&&(identity.mailer||identity.google))await identity.challenges.ping();
@@ -103,7 +110,7 @@ export function buildApp(config: AppConfig, database?: Database,
         return { status: 'ready', background_jobs: jobs ? 'configured' : 'unconfigured',
           media_storage: storage ? 'configured' : 'unconfigured', research: config.researchEnabled ? 'enabled' : 'disabled',
           email_signup:identity.mailer&&identity.challenges?'configured':'unconfigured',google_signin:identity.google&&identity.challenges?'configured':'unconfigured',
-          billing:config.billingEnabled?'enabled':'disabled' };
+          billing:config.billingEnabled?'enabled':'disabled', platform_extensions:config.platformEnabled?'enabled':'disabled' };
       } catch {
         return reply.code(503).send({ status: 'unavailable' });
       }
@@ -117,8 +124,12 @@ export function buildApp(config: AppConfig, database?: Database,
       });
       await api.register(rateLimit, { global: false });
       await api.register(multipart, { limits: { files: 1, fields: 0, parts: 1, fileSize: config.uploadMaxBytes } });
-      const access = authorization(api, db, revocations);
+      const access = authorization(api, db, revocations, config.platformEnabled);
       await authRoutes(api, db, access, revocations, identity, config.jwtSecret);
+      await securityRoutes(api,db,access,config);
+      await platformRoutes(api,db,access,config.platformEnabled);
+      await teamRoutes(api,db,access,config.platformEnabled);
+      await apiKeyRoutes(api,db,access,config.platformEnabled);
       await adminRoutes(api, db, access);
       await researchAdminRoutes(api, db, access);
       await mediaRoutes(api, db, access, storage, config.uploadMaxBytes);

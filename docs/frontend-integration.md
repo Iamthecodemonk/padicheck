@@ -1,5 +1,12 @@
 # PadiCheck frontend integration handoff
 
+Update, 21 October 2026: [platform extension](platform-extension.md) documents the
+new session registry, MFA/recovery login branch, bookmarks, in-app notifications,
+business teams/profile edits and scoped server API keys. Handle `mfa_required`
+before calling `/me` for enrolled accounts. Cloudinary private upload/download
+acceptance passed. OpenAPI now contains 115 operations; the older capability
+inventory below must be read together with this update.
+
 This document describes the implemented backend as of 19 October 2026. Start
 with signup and authentication, then media and investigations. The generated
 [API reference](api-reference.md) contains every registered operation, path/query
@@ -167,12 +174,14 @@ maximum 254 characters. Password: 12-128 characters. Response **202**:
 {
   "challenge_id": "00000000-0000-4000-8000-000000000001",
   "expires_in": 600,
-  "message": "If eligible, a verification code has been sent to this email."
+  "message": "If eligible, a verification email has been queued. Check your inbox shortly."
 }
 ```
 
 Store the email and challenge ID in signup screen state and show a six-digit OTP
 input. This response does not create a user and contains no access token.
+202 confirms queue acceptance, not delivery. Show a check-your-inbox state while
+the separate email worker sends the code; expiry starts at the request.
 For existing accounts it intentionally returns the same generic response and
 does not send a new signup email. Do not promise account creation at this step.
 

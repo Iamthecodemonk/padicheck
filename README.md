@@ -154,11 +154,22 @@ minute per client IP, OTP verification 30, and Google endpoints 20. Use `Authori
 `{"error":{"code":"...","message":"..."},"request_id":"..."}`. Client input
 cannot assign roles. Refresh tokens and password reset are not implemented.
 Email OTP signup and Google sign-in require configured Redis/SMTP/Google settings;
-see [authentication](docs/authentication.md) for flows and account-linking rules. Deploy behind
+OTP email delivery also requires a separate `npm.cmd run email:worker:dev` process
+(`npm.cmd run email:worker:start` after building). Signup returns after queueing;
+the worker sends the redesigned HTML/plain-text email and retries SMTP failures.
+See [authentication](docs/authentication.md) for flows and account-linking rules. Deploy behind
 HTTPS. JWTs use fixed issuer/audience and HS256; permissions are read from the
 database on every protected request.
 
 ## Logging
+
+The approved [platform extension](docs/platform-extension.md) adds sessions,
+authenticator 2FA/recovery, bookmarks, in-app notifications, business teams and
+scoped API keys. Apply `npm run db:platform-migrate` and configure the private
+encryption key before enabling `PLATFORM_EXTENSIONS_ENABLED`.
+
+For the current frontend/backend capability inventory, configuration blockers and
+worker startup explanation, see [backend/frontend audit](docs/backend-frontend-audit.md).
 
 Use the shared [Pino logger](src/logger.ts) or `request.log` in HTTP handlers.
 Logs are structured JSON on stderr, controlled by `LOG_LEVEL`, with component and

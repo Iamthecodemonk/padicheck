@@ -57,7 +57,7 @@ export async function googleAuthRoutes(app:FastifyInstance,db:Database,access:Au
           await client.query("UPDATE user_auth_accounts SET last_used_at=now() WHERE provider='google' AND provider_subject=$1",[identity.sub]);
           return user;
         });
-        return action==='link'?{linked:true}:authSession(app,user);
+        return action==='link'?{linked:true}:authSession(app,user,auth.platformEnabled?db:undefined);
       }catch(error){if((error as {code?:string}).code==='23505')throw new ApiError(409,'identity_conflict','Account changed; sign in again to link Google');throw error;}
     });
   }

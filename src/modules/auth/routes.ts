@@ -24,7 +24,7 @@ export async function authRoutes(app: FastifyInstance, db: Database, access: Aut
   // Used for missing accounts so login also performs expensive password work.
   const dummyHash = await hashPassword('unused dummy login credential');
   const authLimit = { rateLimit: { max: 10, timeWindow: '1 minute' } };
-  const tokenFor = (user: User) => authSession(app,user);
+  const tokenFor = (user: User) => authSession(app,user,identity.platformEnabled?db:undefined);
 
   app.post<{ Body: Credentials }>('/v1/auth/login', {
     config: authLimit,
@@ -58,6 +58,8 @@ export async function authRoutes(app: FastifyInstance, db: Database, access: Aut
 
   app.post('/v1/auth/logout', { preHandler: access.authenticate }, async (request, reply) => {
     await revocations.revoke(tokenDigest(request), request.user.exp);
+    if(identity.platformEnabled)await db.query('UPDATE auth_sessions SET revoked_at=COALESCE(revoked_at,now()) WHERE users_id=$1 AND jti_hash=$2',
+      [request.principal!.users_id,(await import('./security.js')).digest(request.user.jti??'')]);
     reply.header('Cache-Control', 'no-store');
     return reply.code(204).send();
   });

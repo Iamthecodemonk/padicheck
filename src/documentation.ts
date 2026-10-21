@@ -18,7 +18,7 @@ const challenge = envelope({ challenge_id: { type: 'string', format: 'uuid' },
 function response(url: string, method: string): { status: number; schema?: object } {
   if (url === '/health') return { status: 200, schema: envelope({ status: string, service: string }) };
   if (url === '/ready') return { status: 200, schema: envelope({ status: string, background_jobs: string,
-    media_storage: string, research: string, email_signup: string, google_signin: string, billing: string }) };
+    media_storage: string, research: string, email_signup: string, google_signin: string, billing: string, platform_extensions: string }) };
   if (url === '/v1/webhooks/bachs') return {status:202,schema:envelope({received:boolean})};
   if (url === '/v1/billing/offers') return {status:200,schema:envelope({enabled:boolean,offers:array})};
   if (url === '/v1/billing/me') return {status:200,schema:envelope({enabled:boolean,available_units:{type:'integer'},subscriptions:array})};
@@ -26,10 +26,26 @@ function response(url: string, method: string): { status: number; schema?: objec
   if (url.startsWith('/v1/billing/checkouts')) return {status:method==='POST'?201:200,schema:envelope({checkout:record})};
   if (url.startsWith('/v1/admin/billing/')) return {status:method==='POST'&&url.endsWith('/offers')?201:200,
     schema:envelope(method==='GET'?{[url.split('/').at(-1)!]:array}:url.includes('/grants/')?{grant:record}:{offer:record})};
-  if (url === '/v1/auth/logout' || method === 'DELETE') return { status: 204 };
+  if (['/v1/auth/logout','/v1/auth/logout-all'].includes(url) || method === 'DELETE') return { status: 204 };
+  if(url==='/v1/auth/sessions')return {status:200,schema:envelope({sessions:array})};
+  if(url==='/v1/auth/mfa')return {status:200,schema:envelope({enabled:boolean,recovery_codes_remaining:{type:'integer'}})};
+  if(url==='/v1/auth/mfa/setup')return {status:200,schema:envelope({secret:string,otpauth_uri:string,expires_in:{type:'integer',example:600}})};
+  if(url==='/v1/auth/mfa/verify')return {status:200,schema:session};
+  if(url.startsWith('/v1/auth/mfa/'))return {status:200,schema:envelope({enabled:boolean,recovery_codes:{type:'array',items:string},sign_in_required:boolean})};
+  if(url==='/v1/me/bookmarks')return {status:200,schema:envelope({bookmarks:array})};
+  if(url.endsWith('/bookmark'))return {status:200,schema:envelope({bookmarked:boolean})};
+  if(url==='/v1/me/notifications')return {status:200,schema:envelope({notifications:array})};
+  if(url.startsWith('/v1/me/notifications/'))return {status:200,schema:envelope({notification:record})};
+  if(url==='/v1/me/notification-preferences')return {status:200,schema:envelope(method==='GET'?{preferences:array}:{preference:record})};
+  if(url.startsWith('/v1/me/api-keys'))return {status:method==='POST'?201:200,schema:envelope(method==='GET'?{api_keys:array}:{api_key:record,secret:string})};
+  if(url==='/v1/me/business-invitations')return {status:200,schema:envelope({invitations:array})};
+  if(url.startsWith('/v1/me/business-invitations/'))return {status:200,schema:envelope({accepted:boolean})};
+  if(url.startsWith('/v1/businesses/'))return {status:url.endsWith('/invitations')&&method==='POST'?201:200,
+    schema:envelope(url.endsWith('/team')?{owner_user_id:string,members:array,invitations:array}:url.endsWith('/invitations')?{invitation:record,delivery:{type:'string',enum:['in_app']}}:url.endsWith('/profile')?{business:record}:{updated:boolean})};
   if (['/v1/auth/register','/v1/auth/email/request'].includes(url)) return { status: 202, schema: challenge };
   if (['/v1/auth/login','/v1/auth/register/verify','/v1/auth/google'].includes(url)) {
-    return { status: url.endsWith('register/verify') ? 201 : 200, schema: session };
+    return { status: url.endsWith('register/verify') ? 201 : 200, schema: url.endsWith('register/verify')?session:{oneOf:[{...session,required:['user','access_token','token_type','expires_in']},
+      {...envelope({mfa_required:{type:'boolean',enum:[true]},challenge_token:string,expires_in:{type:'integer',example:300}}),required:['mfa_required','challenge_token','expires_in']}]} };
   }
   if (url === '/v1/auth/google/challenge') return { status: 200, schema: envelope({ nonce: string, expires_in: { type: 'integer', example: 300 } }) };
   if (url === '/v1/auth/google/link') return { status: 200, schema: envelope({ linked: boolean }) };
@@ -63,6 +79,13 @@ function response(url: string, method: string): { status: number; schema?: objec
 }
 
 function permission(url: string, method: string): string {
+  if(url==='/v1/auth/mfa/verify')return 'Public second-factor completion. Send the five-minute challenge_token from password/Google login and a six-digit authenticator code or a 24-character recovery code. Five challenge attempts; temporary per-account lockout. Challenge tokens cannot authorize other endpoints.';
+  if(url.startsWith('/v1/auth/mfa'))return 'Requires enabled platform extension and a registered user session. Setup/confirm/disable/recovery-code regeneration require login within five minutes. Mutations require valid proof; enabling/disabling/regenerating revokes all sessions. Setup returns a sensitive provisioning secret once; never log or upload it.';
+  if(url==='/v1/auth/sessions'||url.startsWith('/v1/auth/sessions/')||url==='/v1/auth/logout-all')return 'Registered user session required. Only your sessions are accessible. Logout-all revokes sessions and pending MFA login challenges; it does not revoke API keys.';
+  if(url.startsWith('/v1/me/api-keys'))return 'User-session authentication only. Create/rotate require verified email and login within five minutes. Secret returned once; list contains metadata only. Maximum 20 active keys; expiry 1–90 days. Scopes never exceed live account permissions. Rotation immediately revokes old key.';
+  if(url.startsWith('/v1/me/business-invitations'))return 'Verified user-session authentication. Only invitations to your verified account email are listed/accepted; expired/revoked invitations and invitations from a previous owner are unavailable.';
+  if(url.startsWith('/v1/businesses/'))return 'Verified user-session authentication. Claimed owner manages invitations and membership. Owner, manager and editor can edit category/description; viewer cannot edit. Team membership grants no platform staff permissions. Ownership changes clear memberships and revoke invitations. Invitation delivery is in-app, not SMTP.';
+  if(url.startsWith('/v1/me/')||url.endsWith('/bookmark'))return 'Enabled platform extension and user-session authentication required. Owner-only records; list limit defaults to 20 (maximum 100), offset defaults to zero (maximum 10000). Bookmarks additionally require investigation read permission. Notifications are in-app and contain related record IDs, not private evidence.';
   if(url.startsWith('/v1/admin/billing/'))return 'Requires the superadmin role. Billing offer price/product/mode/units are immutable: create another offer for a price change. Mutations are audited.';
   if (url.startsWith('/v1/admin/ai/')) return 'Requires ai_config.manage. Only superadmins may change credential references; values are server-side environment references.';
   if (url === '/v1/admin/roles') return 'Requires roles.read.';
@@ -84,12 +107,12 @@ function permission(url: string, method: string): string {
 const notes: Record<string, string> = {
   '/health': 'Liveness only; does not probe database or external services.',
   '/ready': 'Checks database, enabled research registry and configured Redis resources. Configuration indicators do not prove live SMTP, Google or Cloudinary connectivity. Returns 503 when unavailable.',
-  '/v1/auth/register': 'Start password signup. Sends a six-digit email code; no account or token is created until verification. Code expires in 10 minutes, with five attempts, a 60-second resend cooldown and five requests per hour per email. Repeat this endpoint to resend. Existing accounts receive the same generic response. Requires Redis and SMTP.',
+  '/v1/auth/register': 'Start password signup. Queues a six-digit email code; 202 confirms queue acceptance, not inbox delivery. No account or token is created until verification. Code expires 10 minutes after the request, with five attempts, a 60-second resend cooldown and five requests per hour per email. Repeat this endpoint to resend. Existing accounts receive the same generic response. Requires Redis, SMTP configuration and a running email worker.',
   '/v1/auth/register/verify': 'Complete signup with email, challenge_id and the emailed six-digit code. Returns a 15-minute access token. Codes are single-use; request a new code after an unsuccessful account-creation transaction.',
   '/v1/auth/login': 'Password login returns a 15-minute access token. Use it in Authorize for protected routes.',
   '/v1/auth/logout': 'Revokes the current access token until its expiration. No response body.',
   '/v1/auth/me': 'Returns the current account, verification status, roles and permissions.',
-  '/v1/auth/email/request': 'Send a verification code to the authenticated account email. Requires Redis and SMTP.',
+  '/v1/auth/email/request': 'Queue a verification code to the authenticated account email. 202 confirms queue acceptance, not delivery. Requires Redis, SMTP configuration and a running email worker.',
   '/v1/auth/email/verify': 'Verify the authenticated account email using its email-purpose challenge and six-digit code.',
   '/v1/auth/google/challenge': 'Create a single-use nonce valid for five minutes. Pass it to Google Identity Services. action=login is public; action=link requires your existing Bearer token. Requires Redis and GOOGLE_CLIENT_ID.',
   '/v1/auth/google': 'Exchange a Google ID token containing the issued nonce for a PadiCheck access token. Existing password accounts must sign in and explicitly link Google. New accounts require an authoritative verified Google email.',
@@ -130,7 +153,7 @@ const summaries: Record<string, string> = {
 function documentSchema(schema: FastifySchema = {}, url: string, method: string, maxBytes: number): FastifySchema {
   if (url.startsWith('/docs')) return { ...schema, hide: true };
   const publicRoute = ['/health','/ready','/v1/auth/register','/v1/auth/register/verify','/v1/auth/login',
-    '/v1/auth/google','/v1/auth/google/challenge','/v1/shared-investigations/resolve','/v1/billing/offers','/v1/webhooks/bachs'].includes(url) || url.startsWith('/v1/directory');
+    '/v1/auth/google','/v1/auth/google/challenge','/v1/auth/mfa/verify','/v1/shared-investigations/resolve','/v1/billing/offers','/v1/webhooks/bachs'].includes(url) || url.startsWith('/v1/directory');
   const tag = url.includes('/billing')||url.includes('/webhooks/bachs')?'Billing':url.startsWith('/v1/auth') ? 'Authentication' : url.includes('/admin/ai/') ? 'AI registry' :
     url.includes('share') ? 'Sharing' : url.includes('/investigations') ? 'Investigations' : url.includes('/media') ? 'Media' :
     url.includes('/verifications') ? 'Verifications' : url.includes('/disputes') ? 'Disputes' : url.includes('/reports') ? 'Reports' :
@@ -160,7 +183,9 @@ function documentSchema(schema: FastifySchema = {}, url: string, method: string,
   return { ...schema, tags: [tag], operationId: `${method.toLowerCase()}_${url.replace(/^\//, '').replace(/:/g, '').replace(/[^a-zA-Z0-9]+/g, '_')}`,
     summary: summaries[url] ?? `${method === 'GET' ? 'Get' : method === 'PATCH' ? 'Update' : method === 'DELETE' ? 'Delete' : 'Submit'} ${url.replace(/^\/v1\//, '').replace(/[:/]/g, ' ').replace(/[-_]/g, ' ').trim()}`,
     description: description || 'Public access to published directory content.',
-    security: publicRoute ? url.endsWith('/google/challenge') ? [{}, { bearerAuth: [] }] : [] : [{ bearerAuth: [] }],
+    security: publicRoute ? url.endsWith('/google/challenge') ? [{}, { bearerAuth: [] }] : [] :
+      ((url==='/v1/investigations'&&['GET','POST'].includes(method))||method==='GET'&&/^\/v1\/investigations\/:investigation_id(?:\/(?:findings|sources|model-runs))?$/.test(url))?
+      [{bearerAuth:[]},{apiKeyAuth:[]}]:[{ bearerAuth: [] }],
     response: responses,
     ...(schema.body && examples[url] ? { body: { ...(schema.body as Record<string, unknown>), example: examples[url] } } : {}),
     ...(url==='/v1/webhooks/bachs'?{body:{type:'object',required:['id','type','organization_id','created_at','data'],properties:{
@@ -176,7 +201,7 @@ export function registerDocumentation(app: FastifyInstance, maxBytes: number) {
   app.register(swagger, {
     openapi: { openapi: '3.0.3', info: { title: 'PadiCheck Backend API', version: '0.1.0',
       description: 'Password + email OTP signup, Google identity, investigations, media and trust operations. Authenticate with a PadiCheck access token using Authorize. Roles, ownership and state transitions are enforced by the backend.' },
-      components: { securitySchemes: { bearerAuth: { type: 'http', scheme: 'bearer', bearerFormat: 'JWT' } } } },
+      components: { securitySchemes: { bearerAuth: { type: 'http', scheme: 'bearer', bearerFormat: 'JWT' },apiKeyAuth:{type:'apiKey',in:'header',name:'X-API-Key'} } } },
     transform: ({ schema, url, route }) => ({ schema: documentSchema(schema, url, String(route.method).toUpperCase(), maxBytes), url }),
   });
   app.register(swaggerUi, { routePrefix: '/docs',

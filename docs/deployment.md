@@ -31,6 +31,14 @@ limited API with research disabled, use the normal preflight, inspect its explic
 
 ## Environment
 
+Deploy the OTP email worker as a separate process with
+`npm.cmd run email:worker:start` after building. It must use the same Redis and
+JWT secret as the API, plus SMTP configuration. It verifies SMTP at startup and
+logs sanitized send duration, queue wait time, retry failures and exhausted
+attempts. Monitor this process separately: API readiness checks queue access,
+not whether an email worker is running. Without it, OTP jobs wait until their
+challenges expire. See [background delivery](authentication.md#background-otp-delivery).
+
 Start from `.env.example` without copying real secrets into source control.
 
 | Variable | Meaning |
@@ -40,6 +48,8 @@ Start from `.env.example` without copying real secrets into source control.
 | `DATABASE_URL` | Dedicated PostgreSQL connection; use the database provider's authenticated/TLS connection settings |
 | `REDIS_URL` | Shared Redis for token revocation and BullMQ; required in production and for every worker |
 | `JWT_SECRET` | At least 32 bytes from a secure random generator; keep consistent across API replicas |
+| `PLATFORM_EXTENSIONS_ENABLED` | Enable sessions/MFA/bookmarks/notifications/teams/API keys only after migration 004 and encryption-key configuration |
+| `ACCOUNT_ENCRYPTION_KEY` | Stable private 32-byte key encoded as 64 hex characters; encrypts authenticator secrets; back up separately from JWT configuration |
 | `SMTP_HOST`, `SMTP_FROM`, `SMTP_PORT`, `SMTP_SECURE`, `SMTP_USER`, `SMTP_PASSWORD` | SMTP configuration for OTP signup; see the authentication guide |
 | `GOOGLE_CLIENT_ID` | Web OAuth client ID for Google ID-token login/linking; no client secret required |
 | `CLOUDINARY_CLOUD_NAME`, `CLOUDINARY_API_KEY`, `CLOUDINARY_API_SECRET` | All three or none; missing storage keeps media routes unavailable |
@@ -97,6 +107,7 @@ Run the API and worker as separately supervised, unprivileged processes:
 
 ```powershell
 node dist/server.js
+node dist/workers/otp-email.js
 node dist/workers/source-collection.js
 ```
 

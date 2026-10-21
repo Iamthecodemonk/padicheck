@@ -58,7 +58,7 @@ export async function emailAuthRoutes(app:FastifyInstance,db:Database,access:Aut
           VALUES ($1,'password',$2,$3,now())`,[row.users_id,pending.password_hash,row.email]);
         return row;
       });
-      return reply.code(201).send(authSession(app,user));
+      return reply.code(201).send(await authSession(app,user,auth.platformEnabled?db:undefined));
     }catch(error){if((error as {code?:string}).code==='23505')throw new ApiError(409,'account_exists','An account with this email already exists');throw error;}
   });
   app.post('/v1/auth/email/request',{

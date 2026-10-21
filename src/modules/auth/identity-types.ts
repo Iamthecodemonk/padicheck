@@ -19,4 +19,4 @@ export interface OtpMailer {
 export type OtpDeliveryContext = { key: string; challenge_id: string; expires_at: number };
 export type GoogleIdentity = { sub: string; email: string; name: string; nonce: string; authoritative_email: boolean };
 export interface GoogleVerifier { verify(idToken: string): Promise<GoogleIdentity> }
-export type AuthDependencies = { challenges?: AuthChallenges; mailer?: OtpMailer; google?: GoogleVerifier };
+export type AuthDependencies = { challenges?: AuthChallenges; mailer?: OtpMailer; google?: GoogleVerifier; platformEnabled?: boolean };

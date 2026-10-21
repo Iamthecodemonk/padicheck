@@ -12,7 +12,7 @@ Response schemas describe envelopes. Record properties marked `additionalPropert
 
 Standard API errors have `{ "error": { "code": "...", "message": "..." }, "request_id": "..." }`. `/ready` returning 503 instead uses `{ "status": "unavailable" }`. A 204 has no body.
 
-This snapshot contains **87 operations**. Runtime documentation: `/docs/`, `/docs/json`, `/docs/yaml`.
+This snapshot contains **115 operations**. Runtime documentation: `/docs/`, `/docs/json`, `/docs/yaml`.
 
 | Method | URL | Summary |
 | --- | --- | --- |
@@ -63,14 +63,29 @@ This snapshot contains **87 operations**. Runtime documentation: `/docs/`, `/doc
 | POST | `/v1/auth/google/link` | Link Google identity to current account |
 | POST | `/v1/auth/login` | Log in with email and password |
 | POST | `/v1/auth/logout` | Log out and revoke current token |
+| POST | `/v1/auth/logout-all` | Submit auth logout all |
 | GET | `/v1/auth/me` | Get current account and permissions |
+| GET | `/v1/auth/mfa` | Get auth mfa |
+| POST | `/v1/auth/mfa/confirm` | Submit auth mfa confirm |
+| POST | `/v1/auth/mfa/disable` | Submit auth mfa disable |
+| POST | `/v1/auth/mfa/recovery-codes` | Submit auth mfa recovery codes |
+| POST | `/v1/auth/mfa/setup` | Submit auth mfa setup |
+| POST | `/v1/auth/mfa/verify` | Submit auth mfa verify |
 | POST | `/v1/auth/register` | Start password signup and send email OTP |
 | POST | `/v1/auth/register/verify` | Verify signup OTP and create account |
+| GET | `/v1/auth/sessions` | Get auth sessions |
+| DELETE | `/v1/auth/sessions/{id}` | Delete auth sessions  id |
 | POST | `/v1/billing/checkouts` | Submit billing checkouts |
 | GET | `/v1/billing/checkouts/{id}` | Get billing checkouts  id |
 | GET | `/v1/billing/me` | Get billing me |
 | GET | `/v1/billing/offers` | Get billing offers |
 | POST | `/v1/billing/portal` | Submit billing portal |
+| POST | `/v1/businesses/{id}/invitations` | Submit businesses  id invitations |
+| DELETE | `/v1/businesses/{id}/invitations/{invitation_id}` | Delete businesses  id invitations  invitation id |
+| PATCH | `/v1/businesses/{id}/profile` | Update businesses  id profile |
+| GET | `/v1/businesses/{id}/team` | Get businesses  id team |
+| PATCH | `/v1/businesses/{id}/team/{users_id}` | Update businesses  id team  users id |
+| DELETE | `/v1/businesses/{id}/team/{users_id}` | Delete businesses  id team  users id |
 | GET | `/v1/directory` | Get directory |
 | GET | `/v1/directory/{id}` | Get directory  id |
 | GET | `/v1/directory/{id}/reports` | Get directory  id reports |
@@ -79,6 +94,8 @@ This snapshot contains **87 operations**. Runtime documentation: `/docs/`, `/doc
 | POST | `/v1/disputes/{id}/withdraw` | Submit disputes  id withdraw |
 | POST | `/v1/investigations` | Submit investigations |
 | GET | `/v1/investigations` | Get investigations |
+| POST | `/v1/investigations/{id}/bookmark` | Submit investigations  id bookmark |
+| DELETE | `/v1/investigations/{id}/bookmark` | Delete investigations  id bookmark |
 | GET | `/v1/investigations/{investigation_id}` | Get investigations  investigation id |
 | POST | `/v1/investigations/{investigation_id}/cancel` | Submit investigations  investigation id cancel |
 | GET | `/v1/investigations/{investigation_id}/findings` | Get investigations  investigation id findings |
@@ -88,6 +105,17 @@ This snapshot contains **87 operations**. Runtime documentation: `/docs/`, `/doc
 | GET | `/v1/investigations/{investigation_id}/share-links` | Get investigations  investigation id share links |
 | POST | `/v1/investigations/{investigation_id}/share-links/{share_link_id}/revoke` | Submit investigations  investigation id share links  share link id revoke |
 | GET | `/v1/investigations/{investigation_id}/sources` | Get investigations  investigation id sources |
+| GET | `/v1/me/api-keys` | Get me api keys |
+| POST | `/v1/me/api-keys` | Submit me api keys |
+| DELETE | `/v1/me/api-keys/{id}` | Delete me api keys  id |
+| POST | `/v1/me/api-keys/{id}/rotate` | Submit me api keys  id rotate |
+| GET | `/v1/me/bookmarks` | Get me bookmarks |
+| GET | `/v1/me/business-invitations` | Get me business invitations |
+| POST | `/v1/me/business-invitations/{id}/accept` | Submit me business invitations  id accept |
+| GET | `/v1/me/notification-preferences` | Get me notification preferences |
+| PATCH | `/v1/me/notification-preferences` | Update me notification preferences |
+| GET | `/v1/me/notifications` | Get me notifications |
+| POST | `/v1/me/notifications/{id}/read` | Submit me notifications  id read |
 | POST | `/v1/media` | Submit media |
 | GET | `/v1/media/{media_id}` | Get media  media id |
 | DELETE | `/v1/media/{media_id}` | Delete media  media id |
@@ -196,6 +224,9 @@ No request body is required.
               "type": "string"
             },
             "billing": {
+              "type": "string"
+            },
+            "platform_extensions": {
               "type": "string"
             }
           },
@@ -3779,7 +3810,7 @@ Requires verifications.review. Self-review and conflicting business claims are r
 
 Send account email verification OTP
 
-Send a verification code to the authenticated account email. Requires Redis and SMTP.
+Queue a verification code to the authenticated account email. 202 confirms queue acceptance, not delivery. Requires Redis, SMTP configuration and a running email worker.
 
 **Security**
 
@@ -3964,41 +3995,74 @@ Exchange a Google ID token containing the issued nonce for a PadiCheck access to
     "content": {
       "application/json": {
         "schema": {
-          "type": "object",
-          "properties": {
-            "user": {
+          "oneOf": [
+            {
               "type": "object",
               "properties": {
-                "users_id": {
-                  "type": "string",
-                  "format": "uuid"
+                "user": {
+                  "type": "object",
+                  "properties": {
+                    "users_id": {
+                      "type": "string",
+                      "format": "uuid"
+                    },
+                    "display_name": {
+                      "type": "string"
+                    },
+                    "email": {
+                      "type": "string",
+                      "format": "email"
+                    },
+                    "email_verified": {
+                      "type": "boolean"
+                    }
+                  }
                 },
-                "display_name": {
+                "access_token": {
                   "type": "string"
                 },
-                "email": {
+                "token_type": {
                   "type": "string",
-                  "format": "email"
+                  "enum": [
+                    "Bearer"
+                  ]
                 },
-                "email_verified": {
-                  "type": "boolean"
+                "expires_in": {
+                  "type": "integer",
+                  "example": 900
                 }
-              }
-            },
-            "access_token": {
-              "type": "string"
-            },
-            "token_type": {
-              "type": "string",
-              "enum": [
-                "Bearer"
+              },
+              "required": [
+                "user",
+                "access_token",
+                "token_type",
+                "expires_in"
               ]
             },
-            "expires_in": {
-              "type": "integer",
-              "example": 900
+            {
+              "type": "object",
+              "properties": {
+                "mfa_required": {
+                  "type": "boolean",
+                  "enum": [
+                    true
+                  ]
+                },
+                "challenge_token": {
+                  "type": "string"
+                },
+                "expires_in": {
+                  "type": "integer",
+                  "example": 300
+                }
+              },
+              "required": [
+                "mfa_required",
+                "challenge_token",
+                "expires_in"
+              ]
             }
-          },
+          ],
           "description": "Success"
         }
       }
@@ -4217,41 +4281,74 @@ Password login returns a 15-minute access token. Use it in Authorize for protect
     "content": {
       "application/json": {
         "schema": {
-          "type": "object",
-          "properties": {
-            "user": {
+          "oneOf": [
+            {
               "type": "object",
               "properties": {
-                "users_id": {
-                  "type": "string",
-                  "format": "uuid"
+                "user": {
+                  "type": "object",
+                  "properties": {
+                    "users_id": {
+                      "type": "string",
+                      "format": "uuid"
+                    },
+                    "display_name": {
+                      "type": "string"
+                    },
+                    "email": {
+                      "type": "string",
+                      "format": "email"
+                    },
+                    "email_verified": {
+                      "type": "boolean"
+                    }
+                  }
                 },
-                "display_name": {
+                "access_token": {
                   "type": "string"
                 },
-                "email": {
+                "token_type": {
                   "type": "string",
-                  "format": "email"
+                  "enum": [
+                    "Bearer"
+                  ]
                 },
-                "email_verified": {
-                  "type": "boolean"
+                "expires_in": {
+                  "type": "integer",
+                  "example": 900
                 }
-              }
-            },
-            "access_token": {
-              "type": "string"
-            },
-            "token_type": {
-              "type": "string",
-              "enum": [
-                "Bearer"
+              },
+              "required": [
+                "user",
+                "access_token",
+                "token_type",
+                "expires_in"
               ]
             },
-            "expires_in": {
-              "type": "integer",
-              "example": 900
+            {
+              "type": "object",
+              "properties": {
+                "mfa_required": {
+                  "type": "boolean",
+                  "enum": [
+                    true
+                  ]
+                },
+                "challenge_token": {
+                  "type": "string"
+                },
+                "expires_in": {
+                  "type": "integer",
+                  "example": 300
+                }
+              },
+              "required": [
+                "mfa_required",
+                "challenge_token",
+                "expires_in"
+              ]
             }
-          },
+          ],
           "description": "Success"
         }
       }
@@ -4269,6 +4366,40 @@ Password login returns a 15-minute access token. Use it in Authorize for protect
 Log out and revoke current token
 
 Revokes the current access token until its expiration. No response body.
+
+**Security**
+
+```json
+[
+  {
+    "bearerAuth": []
+  }
+]
+```
+
+**Request body**
+
+No request body is required.
+
+**Success responses**
+
+```json
+{
+  "204": {
+    "description": "No content"
+  }
+}
+```
+
+**Documented errors**
+
+400: Invalid request; 401: Invalid or missing credentials; 403: Permission denied; 404: Resource not found or unavailable; 409: Conflict or invalid state transition; 429: Rate limit exceeded; 500: Internal error; 503: Required service is not configured or unavailable
+
+## POST /v1/auth/logout-all
+
+Submit auth logout all
+
+Registered user session required. Only your sessions are accessible. Logout-all revokes sessions and pending MFA login challenges; it does not revoke API keys.
 
 **Security**
 
@@ -4346,11 +4477,445 @@ No request body is required.
 
 400: Invalid request; 401: Invalid or missing credentials; 403: Permission denied; 404: Resource not found or unavailable; 409: Conflict or invalid state transition; 429: Rate limit exceeded; 500: Internal error; 503: Required service is not configured or unavailable
 
+## GET /v1/auth/mfa
+
+Get auth mfa
+
+Requires enabled platform extension and a registered user session. Setup/confirm/disable/recovery-code regeneration require login within five minutes. Mutations require valid proof; enabling/disabling/regenerating revokes all sessions. Setup returns a sensitive provisioning secret once; never log or upload it.
+
+**Security**
+
+```json
+[
+  {
+    "bearerAuth": []
+  }
+]
+```
+
+**Request body**
+
+No request body is required.
+
+**Success responses**
+
+```json
+{
+  "200": {
+    "description": "Success",
+    "content": {
+      "application/json": {
+        "schema": {
+          "type": "object",
+          "properties": {
+            "enabled": {
+              "type": "boolean"
+            },
+            "recovery_codes_remaining": {
+              "type": "integer"
+            }
+          },
+          "description": "Success"
+        }
+      }
+    }
+  }
+}
+```
+
+**Documented errors**
+
+400: Invalid request; 401: Invalid or missing credentials; 403: Permission denied; 404: Resource not found or unavailable; 409: Conflict or invalid state transition; 429: Rate limit exceeded; 500: Internal error; 503: Required service is not configured or unavailable
+
+## POST /v1/auth/mfa/confirm
+
+Submit auth mfa confirm
+
+Requires enabled platform extension and a registered user session. Setup/confirm/disable/recovery-code regeneration require login within five minutes. Mutations require valid proof; enabling/disabling/regenerating revokes all sessions. Setup returns a sensitive provisioning secret once; never log or upload it.
+
+**Security**
+
+```json
+[
+  {
+    "bearerAuth": []
+  }
+]
+```
+
+**Request body**
+
+```json
+{
+  "required": true,
+  "content": {
+    "application/json": {
+      "schema": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "code": {
+            "type": "string",
+            "pattern": "^(?:[0-9]{6}|[a-f0-9]{24})$"
+          }
+        },
+        "required": [
+          "code"
+        ]
+      }
+    }
+  }
+}
+```
+
+**Success responses**
+
+```json
+{
+  "200": {
+    "description": "Success",
+    "content": {
+      "application/json": {
+        "schema": {
+          "type": "object",
+          "properties": {
+            "enabled": {
+              "type": "boolean"
+            },
+            "recovery_codes": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            },
+            "sign_in_required": {
+              "type": "boolean"
+            }
+          },
+          "description": "Success"
+        }
+      }
+    }
+  }
+}
+```
+
+**Documented errors**
+
+400: Invalid request; 401: Invalid or missing credentials; 403: Permission denied; 404: Resource not found or unavailable; 409: Conflict or invalid state transition; 429: Rate limit exceeded; 500: Internal error; 503: Required service is not configured or unavailable
+
+## POST /v1/auth/mfa/disable
+
+Submit auth mfa disable
+
+Requires enabled platform extension and a registered user session. Setup/confirm/disable/recovery-code regeneration require login within five minutes. Mutations require valid proof; enabling/disabling/regenerating revokes all sessions. Setup returns a sensitive provisioning secret once; never log or upload it.
+
+**Security**
+
+```json
+[
+  {
+    "bearerAuth": []
+  }
+]
+```
+
+**Request body**
+
+```json
+{
+  "required": true,
+  "content": {
+    "application/json": {
+      "schema": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "code": {
+            "type": "string",
+            "pattern": "^(?:[0-9]{6}|[a-f0-9]{24})$"
+          }
+        },
+        "required": [
+          "code"
+        ]
+      }
+    }
+  }
+}
+```
+
+**Success responses**
+
+```json
+{
+  "200": {
+    "description": "Success",
+    "content": {
+      "application/json": {
+        "schema": {
+          "type": "object",
+          "properties": {
+            "enabled": {
+              "type": "boolean"
+            },
+            "recovery_codes": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            },
+            "sign_in_required": {
+              "type": "boolean"
+            }
+          },
+          "description": "Success"
+        }
+      }
+    }
+  }
+}
+```
+
+**Documented errors**
+
+400: Invalid request; 401: Invalid or missing credentials; 403: Permission denied; 404: Resource not found or unavailable; 409: Conflict or invalid state transition; 429: Rate limit exceeded; 500: Internal error; 503: Required service is not configured or unavailable
+
+## POST /v1/auth/mfa/recovery-codes
+
+Submit auth mfa recovery codes
+
+Requires enabled platform extension and a registered user session. Setup/confirm/disable/recovery-code regeneration require login within five minutes. Mutations require valid proof; enabling/disabling/regenerating revokes all sessions. Setup returns a sensitive provisioning secret once; never log or upload it.
+
+**Security**
+
+```json
+[
+  {
+    "bearerAuth": []
+  }
+]
+```
+
+**Request body**
+
+```json
+{
+  "required": true,
+  "content": {
+    "application/json": {
+      "schema": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "code": {
+            "type": "string",
+            "pattern": "^(?:[0-9]{6}|[a-f0-9]{24})$"
+          }
+        },
+        "required": [
+          "code"
+        ]
+      }
+    }
+  }
+}
+```
+
+**Success responses**
+
+```json
+{
+  "200": {
+    "description": "Success",
+    "content": {
+      "application/json": {
+        "schema": {
+          "type": "object",
+          "properties": {
+            "enabled": {
+              "type": "boolean"
+            },
+            "recovery_codes": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            },
+            "sign_in_required": {
+              "type": "boolean"
+            }
+          },
+          "description": "Success"
+        }
+      }
+    }
+  }
+}
+```
+
+**Documented errors**
+
+400: Invalid request; 401: Invalid or missing credentials; 403: Permission denied; 404: Resource not found or unavailable; 409: Conflict or invalid state transition; 429: Rate limit exceeded; 500: Internal error; 503: Required service is not configured or unavailable
+
+## POST /v1/auth/mfa/setup
+
+Submit auth mfa setup
+
+Requires enabled platform extension and a registered user session. Setup/confirm/disable/recovery-code regeneration require login within five minutes. Mutations require valid proof; enabling/disabling/regenerating revokes all sessions. Setup returns a sensitive provisioning secret once; never log or upload it.
+
+**Security**
+
+```json
+[
+  {
+    "bearerAuth": []
+  }
+]
+```
+
+**Request body**
+
+No request body is required.
+
+**Success responses**
+
+```json
+{
+  "200": {
+    "description": "Success",
+    "content": {
+      "application/json": {
+        "schema": {
+          "type": "object",
+          "properties": {
+            "secret": {
+              "type": "string"
+            },
+            "otpauth_uri": {
+              "type": "string"
+            },
+            "expires_in": {
+              "type": "integer",
+              "example": 600
+            }
+          },
+          "description": "Success"
+        }
+      }
+    }
+  }
+}
+```
+
+**Documented errors**
+
+400: Invalid request; 401: Invalid or missing credentials; 403: Permission denied; 404: Resource not found or unavailable; 409: Conflict or invalid state transition; 429: Rate limit exceeded; 500: Internal error; 503: Required service is not configured or unavailable
+
+## POST /v1/auth/mfa/verify
+
+Submit auth mfa verify
+
+Public second-factor completion. Send the five-minute challenge_token from password/Google login and a six-digit authenticator code or a 24-character recovery code. Five challenge attempts; temporary per-account lockout. Challenge tokens cannot authorize other endpoints.
+
+**Security**
+
+```json
+[]
+```
+
+**Request body**
+
+```json
+{
+  "required": true,
+  "content": {
+    "application/json": {
+      "schema": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "challenge_token": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 4096
+          },
+          "code": {
+            "type": "string",
+            "pattern": "^(?:[0-9]{6}|[a-f0-9]{24})$"
+          }
+        },
+        "required": [
+          "challenge_token",
+          "code"
+        ]
+      }
+    }
+  }
+}
+```
+
+**Success responses**
+
+```json
+{
+  "200": {
+    "description": "Success",
+    "content": {
+      "application/json": {
+        "schema": {
+          "type": "object",
+          "properties": {
+            "user": {
+              "type": "object",
+              "properties": {
+                "users_id": {
+                  "type": "string",
+                  "format": "uuid"
+                },
+                "display_name": {
+                  "type": "string"
+                },
+                "email": {
+                  "type": "string",
+                  "format": "email"
+                },
+                "email_verified": {
+                  "type": "boolean"
+                }
+              }
+            },
+            "access_token": {
+              "type": "string"
+            },
+            "token_type": {
+              "type": "string",
+              "enum": [
+                "Bearer"
+              ]
+            },
+            "expires_in": {
+              "type": "integer",
+              "example": 900
+            }
+          },
+          "description": "Success"
+        }
+      }
+    }
+  }
+}
+```
+
+**Documented errors**
+
+400: Invalid request; 404: Resource not found or unavailable; 409: Conflict or invalid state transition; 429: Rate limit exceeded; 500: Internal error; 503: Required service is not configured or unavailable
+
 ## POST /v1/auth/register
 
 Start password signup and send email OTP
 
-Start password signup. Sends a six-digit email code; no account or token is created until verification. Code expires in 10 minutes, with five attempts, a 60-second resend cooldown and five requests per hour per email. Repeat this endpoint to resend. Existing accounts receive the same generic response. Requires Redis and SMTP.
+Start password signup. Queues a six-digit email code; 202 confirms queue acceptance, not inbox delivery. No account or token is created until verification. Code expires 10 minutes after the request, with five attempts, a 60-second resend cooldown and five requests per hour per email. Repeat this endpoint to resend. Existing accounts receive the same generic response. Requires Redis, SMTP configuration and a running email worker.
 
 **Security**
 
@@ -4544,6 +5109,107 @@ Complete signup with email, challenge_id and the emailed six-digit code. Returns
 **Documented errors**
 
 400: Invalid request; 404: Resource not found or unavailable; 409: Conflict or invalid state transition; 429: Rate limit exceeded; 500: Internal error; 503: Required service is not configured or unavailable
+
+## GET /v1/auth/sessions
+
+Get auth sessions
+
+Registered user session required. Only your sessions are accessible. Logout-all revokes sessions and pending MFA login challenges; it does not revoke API keys.
+
+**Security**
+
+```json
+[
+  {
+    "bearerAuth": []
+  }
+]
+```
+
+**Request body**
+
+No request body is required.
+
+**Success responses**
+
+```json
+{
+  "200": {
+    "description": "Success",
+    "content": {
+      "application/json": {
+        "schema": {
+          "type": "object",
+          "properties": {
+            "sessions": {
+              "type": "array",
+              "items": {
+                "type": "object",
+                "additionalProperties": true
+              }
+            }
+          },
+          "description": "Success"
+        }
+      }
+    }
+  }
+}
+```
+
+**Documented errors**
+
+400: Invalid request; 401: Invalid or missing credentials; 403: Permission denied; 404: Resource not found or unavailable; 409: Conflict or invalid state transition; 429: Rate limit exceeded; 500: Internal error; 503: Required service is not configured or unavailable
+
+## DELETE /v1/auth/sessions/{id}
+
+Delete auth sessions  id
+
+Registered user session required. Only your sessions are accessible. Logout-all revokes sessions and pending MFA login challenges; it does not revoke API keys.
+
+**Security**
+
+```json
+[
+  {
+    "bearerAuth": []
+  }
+]
+```
+
+**Path and query parameters**
+
+```json
+[
+  {
+    "schema": {
+      "type": "string",
+      "format": "uuid"
+    },
+    "in": "path",
+    "name": "id",
+    "required": true
+  }
+]
+```
+
+**Request body**
+
+No request body is required.
+
+**Success responses**
+
+```json
+{
+  "204": {
+    "description": "No content"
+  }
+}
+```
+
+**Documented errors**
+
+400: Invalid request; 401: Invalid or missing credentials; 403: Permission denied; 404: Resource not found or unavailable; 409: Conflict or invalid state transition; 429: Rate limit exceeded; 500: Internal error; 503: Required service is not configured or unavailable
 
 ## POST /v1/billing/checkouts
 
@@ -4853,6 +5519,492 @@ Send an owned local billing_subscription_id to create a fresh provider customer-
         }
       }
     }
+  }
+}
+```
+
+**Documented errors**
+
+400: Invalid request; 401: Invalid or missing credentials; 403: Permission denied; 404: Resource not found or unavailable; 409: Conflict or invalid state transition; 429: Rate limit exceeded; 500: Internal error; 503: Required service is not configured or unavailable
+
+## POST /v1/businesses/{id}/invitations
+
+Submit businesses  id invitations
+
+Verified user-session authentication. Claimed owner manages invitations and membership. Owner, manager and editor can edit category/description; viewer cannot edit. Team membership grants no platform staff permissions. Ownership changes clear memberships and revoke invitations. Invitation delivery is in-app, not SMTP.
+
+**Security**
+
+```json
+[
+  {
+    "bearerAuth": []
+  }
+]
+```
+
+**Path and query parameters**
+
+```json
+[
+  {
+    "schema": {
+      "type": "string",
+      "format": "uuid"
+    },
+    "in": "path",
+    "name": "id",
+    "required": true
+  }
+]
+```
+
+**Request body**
+
+```json
+{
+  "required": true,
+  "content": {
+    "application/json": {
+      "schema": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "email": {
+            "type": "string",
+            "format": "email",
+            "maxLength": 254
+          },
+          "member_role": {
+            "type": "string",
+            "enum": [
+              "manager",
+              "editor",
+              "viewer"
+            ]
+          }
+        },
+        "required": [
+          "email",
+          "member_role"
+        ]
+      }
+    }
+  }
+}
+```
+
+**Success responses**
+
+```json
+{
+  "201": {
+    "description": "Success",
+    "content": {
+      "application/json": {
+        "schema": {
+          "type": "object",
+          "properties": {
+            "invitation": {
+              "type": "object",
+              "additionalProperties": true
+            },
+            "delivery": {
+              "type": "string",
+              "enum": [
+                "in_app"
+              ]
+            }
+          },
+          "description": "Success"
+        }
+      }
+    }
+  }
+}
+```
+
+**Documented errors**
+
+400: Invalid request; 401: Invalid or missing credentials; 403: Permission denied; 404: Resource not found or unavailable; 409: Conflict or invalid state transition; 429: Rate limit exceeded; 500: Internal error; 503: Required service is not configured or unavailable
+
+## DELETE /v1/businesses/{id}/invitations/{invitation_id}
+
+Delete businesses  id invitations  invitation id
+
+Verified user-session authentication. Claimed owner manages invitations and membership. Owner, manager and editor can edit category/description; viewer cannot edit. Team membership grants no platform staff permissions. Ownership changes clear memberships and revoke invitations. Invitation delivery is in-app, not SMTP.
+
+**Security**
+
+```json
+[
+  {
+    "bearerAuth": []
+  }
+]
+```
+
+**Path and query parameters**
+
+```json
+[
+  {
+    "schema": {
+      "type": "string",
+      "format": "uuid"
+    },
+    "in": "path",
+    "name": "id",
+    "required": true
+  },
+  {
+    "schema": {
+      "type": "string",
+      "format": "uuid"
+    },
+    "in": "path",
+    "name": "invitation_id",
+    "required": true
+  }
+]
+```
+
+**Request body**
+
+No request body is required.
+
+**Success responses**
+
+```json
+{
+  "204": {
+    "description": "No content"
+  }
+}
+```
+
+**Documented errors**
+
+400: Invalid request; 401: Invalid or missing credentials; 403: Permission denied; 404: Resource not found or unavailable; 409: Conflict or invalid state transition; 429: Rate limit exceeded; 500: Internal error; 503: Required service is not configured or unavailable
+
+## PATCH /v1/businesses/{id}/profile
+
+Update businesses  id profile
+
+Verified user-session authentication. Claimed owner manages invitations and membership. Owner, manager and editor can edit category/description; viewer cannot edit. Team membership grants no platform staff permissions. Ownership changes clear memberships and revoke invitations. Invitation delivery is in-app, not SMTP.
+
+**Security**
+
+```json
+[
+  {
+    "bearerAuth": []
+  }
+]
+```
+
+**Path and query parameters**
+
+```json
+[
+  {
+    "schema": {
+      "type": "string",
+      "format": "uuid"
+    },
+    "in": "path",
+    "name": "id",
+    "required": true
+  }
+]
+```
+
+**Request body**
+
+```json
+{
+  "required": true,
+  "content": {
+    "application/json": {
+      "schema": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "profile_description": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 5000,
+            "pattern": "\\S",
+            "nullable": true
+          },
+          "business_category": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 100,
+            "pattern": "\\S"
+          }
+        },
+        "required": [],
+        "minProperties": 1
+      }
+    }
+  }
+}
+```
+
+**Success responses**
+
+```json
+{
+  "200": {
+    "description": "Success",
+    "content": {
+      "application/json": {
+        "schema": {
+          "type": "object",
+          "properties": {
+            "business": {
+              "type": "object",
+              "additionalProperties": true
+            }
+          },
+          "description": "Success"
+        }
+      }
+    }
+  }
+}
+```
+
+**Documented errors**
+
+400: Invalid request; 401: Invalid or missing credentials; 403: Permission denied; 404: Resource not found or unavailable; 409: Conflict or invalid state transition; 429: Rate limit exceeded; 500: Internal error; 503: Required service is not configured or unavailable
+
+## GET /v1/businesses/{id}/team
+
+Get businesses  id team
+
+Verified user-session authentication. Claimed owner manages invitations and membership. Owner, manager and editor can edit category/description; viewer cannot edit. Team membership grants no platform staff permissions. Ownership changes clear memberships and revoke invitations. Invitation delivery is in-app, not SMTP.
+
+**Security**
+
+```json
+[
+  {
+    "bearerAuth": []
+  }
+]
+```
+
+**Path and query parameters**
+
+```json
+[
+  {
+    "schema": {
+      "type": "string",
+      "format": "uuid"
+    },
+    "in": "path",
+    "name": "id",
+    "required": true
+  }
+]
+```
+
+**Request body**
+
+No request body is required.
+
+**Success responses**
+
+```json
+{
+  "200": {
+    "description": "Success",
+    "content": {
+      "application/json": {
+        "schema": {
+          "type": "object",
+          "properties": {
+            "owner_user_id": {
+              "type": "string"
+            },
+            "members": {
+              "type": "array",
+              "items": {
+                "type": "object",
+                "additionalProperties": true
+              }
+            },
+            "invitations": {
+              "type": "array",
+              "items": {
+                "type": "object",
+                "additionalProperties": true
+              }
+            }
+          },
+          "description": "Success"
+        }
+      }
+    }
+  }
+}
+```
+
+**Documented errors**
+
+400: Invalid request; 401: Invalid or missing credentials; 403: Permission denied; 404: Resource not found or unavailable; 409: Conflict or invalid state transition; 429: Rate limit exceeded; 500: Internal error; 503: Required service is not configured or unavailable
+
+## PATCH /v1/businesses/{id}/team/{users_id}
+
+Update businesses  id team  users id
+
+Verified user-session authentication. Claimed owner manages invitations and membership. Owner, manager and editor can edit category/description; viewer cannot edit. Team membership grants no platform staff permissions. Ownership changes clear memberships and revoke invitations. Invitation delivery is in-app, not SMTP.
+
+**Security**
+
+```json
+[
+  {
+    "bearerAuth": []
+  }
+]
+```
+
+**Path and query parameters**
+
+```json
+[
+  {
+    "schema": {
+      "type": "string",
+      "format": "uuid"
+    },
+    "in": "path",
+    "name": "id",
+    "required": true
+  },
+  {
+    "schema": {
+      "type": "string",
+      "format": "uuid"
+    },
+    "in": "path",
+    "name": "users_id",
+    "required": true
+  }
+]
+```
+
+**Request body**
+
+```json
+{
+  "required": true,
+  "content": {
+    "application/json": {
+      "schema": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "member_role": {
+            "type": "string",
+            "enum": [
+              "manager",
+              "editor",
+              "viewer"
+            ]
+          }
+        },
+        "required": [
+          "member_role"
+        ]
+      }
+    }
+  }
+}
+```
+
+**Success responses**
+
+```json
+{
+  "200": {
+    "description": "Success",
+    "content": {
+      "application/json": {
+        "schema": {
+          "type": "object",
+          "properties": {
+            "updated": {
+              "type": "boolean"
+            }
+          },
+          "description": "Success"
+        }
+      }
+    }
+  }
+}
+```
+
+**Documented errors**
+
+400: Invalid request; 401: Invalid or missing credentials; 403: Permission denied; 404: Resource not found or unavailable; 409: Conflict or invalid state transition; 429: Rate limit exceeded; 500: Internal error; 503: Required service is not configured or unavailable
+
+## DELETE /v1/businesses/{id}/team/{users_id}
+
+Delete businesses  id team  users id
+
+Verified user-session authentication. Claimed owner manages invitations and membership. Owner, manager and editor can edit category/description; viewer cannot edit. Team membership grants no platform staff permissions. Ownership changes clear memberships and revoke invitations. Invitation delivery is in-app, not SMTP.
+
+**Security**
+
+```json
+[
+  {
+    "bearerAuth": []
+  }
+]
+```
+
+**Path and query parameters**
+
+```json
+[
+  {
+    "schema": {
+      "type": "string",
+      "format": "uuid"
+    },
+    "in": "path",
+    "name": "id",
+    "required": true
+  },
+  {
+    "schema": {
+      "type": "string",
+      "format": "uuid"
+    },
+    "in": "path",
+    "name": "users_id",
+    "required": true
+  }
+]
+```
+
+**Request body**
+
+No request body is required.
+
+**Success responses**
+
+```json
+{
+  "204": {
+    "description": "No content"
   }
 }
 ```
@@ -5420,6 +6572,9 @@ Requires investigations.create. Cancel/retry are owner-only; only active investi
 [
   {
     "bearerAuth": []
+  },
+  {
+    "apiKeyAuth": []
   }
 ]
 ```
@@ -5624,6 +6779,9 @@ Requires investigations.read_own for owned investigations or investigations.read
 [
   {
     "bearerAuth": []
+  },
+  {
+    "apiKeyAuth": []
   }
 ]
 ```
@@ -5707,6 +6865,119 @@ No request body is required.
 
 400: Invalid request; 401: Invalid or missing credentials; 403: Permission denied; 404: Resource not found or unavailable; 409: Conflict or invalid state transition; 429: Rate limit exceeded; 500: Internal error; 503: Required service is not configured or unavailable
 
+## POST /v1/investigations/{id}/bookmark
+
+Submit investigations  id bookmark
+
+Enabled platform extension and user-session authentication required. Owner-only records; list limit defaults to 20 (maximum 100), offset defaults to zero (maximum 10000). Bookmarks additionally require investigation read permission. Notifications are in-app and contain related record IDs, not private evidence.
+
+**Security**
+
+```json
+[
+  {
+    "bearerAuth": []
+  }
+]
+```
+
+**Path and query parameters**
+
+```json
+[
+  {
+    "schema": {
+      "type": "string",
+      "format": "uuid"
+    },
+    "in": "path",
+    "name": "id",
+    "required": true
+  }
+]
+```
+
+**Request body**
+
+No request body is required.
+
+**Success responses**
+
+```json
+{
+  "200": {
+    "description": "Success",
+    "content": {
+      "application/json": {
+        "schema": {
+          "type": "object",
+          "properties": {
+            "bookmarked": {
+              "type": "boolean"
+            }
+          },
+          "description": "Success"
+        }
+      }
+    }
+  }
+}
+```
+
+**Documented errors**
+
+400: Invalid request; 401: Invalid or missing credentials; 403: Permission denied; 404: Resource not found or unavailable; 409: Conflict or invalid state transition; 429: Rate limit exceeded; 500: Internal error; 503: Required service is not configured or unavailable
+
+## DELETE /v1/investigations/{id}/bookmark
+
+Delete investigations  id bookmark
+
+Enabled platform extension and user-session authentication required. Owner-only records; list limit defaults to 20 (maximum 100), offset defaults to zero (maximum 10000). Bookmarks additionally require investigation read permission. Notifications are in-app and contain related record IDs, not private evidence.
+
+**Security**
+
+```json
+[
+  {
+    "bearerAuth": []
+  }
+]
+```
+
+**Path and query parameters**
+
+```json
+[
+  {
+    "schema": {
+      "type": "string",
+      "format": "uuid"
+    },
+    "in": "path",
+    "name": "id",
+    "required": true
+  }
+]
+```
+
+**Request body**
+
+No request body is required.
+
+**Success responses**
+
+```json
+{
+  "204": {
+    "description": "No content"
+  }
+}
+```
+
+**Documented errors**
+
+400: Invalid request; 401: Invalid or missing credentials; 403: Permission denied; 404: Resource not found or unavailable; 409: Conflict or invalid state transition; 429: Rate limit exceeded; 500: Internal error; 503: Required service is not configured or unavailable
+
 ## GET /v1/investigations/{investigation_id}
 
 Get investigations  investigation id
@@ -5719,6 +6990,9 @@ Requires investigations.read_own for owned investigations or investigations.read
 [
   {
     "bearerAuth": []
+  },
+  {
+    "apiKeyAuth": []
   }
 ]
 ```
@@ -5893,6 +7167,9 @@ Requires investigations.read_own for owned investigations or investigations.read
 [
   {
     "bearerAuth": []
+  },
+  {
+    "apiKeyAuth": []
   }
 ]
 ```
@@ -5992,6 +7269,9 @@ Requires investigations.read_own for owned investigations or investigations.read
 [
   {
     "bearerAuth": []
+  },
+  {
+    "apiKeyAuth": []
   }
 ]
 ```
@@ -6436,6 +7716,9 @@ Requires investigations.read_own for owned investigations or investigations.read
 [
   {
     "bearerAuth": []
+  },
+  {
+    "apiKeyAuth": []
   }
 ]
 ```
@@ -6507,6 +7790,772 @@ No request body is required.
               }
             },
             "capabilities": {
+              "type": "object",
+              "additionalProperties": true
+            }
+          },
+          "description": "Success"
+        }
+      }
+    }
+  }
+}
+```
+
+**Documented errors**
+
+400: Invalid request; 401: Invalid or missing credentials; 403: Permission denied; 404: Resource not found or unavailable; 409: Conflict or invalid state transition; 429: Rate limit exceeded; 500: Internal error; 503: Required service is not configured or unavailable
+
+## GET /v1/me/api-keys
+
+Get me api keys
+
+User-session authentication only. Create/rotate require verified email and login within five minutes. Secret returned once; list contains metadata only. Maximum 20 active keys; expiry 1–90 days. Scopes never exceed live account permissions. Rotation immediately revokes old key.
+
+**Security**
+
+```json
+[
+  {
+    "bearerAuth": []
+  }
+]
+```
+
+**Request body**
+
+No request body is required.
+
+**Success responses**
+
+```json
+{
+  "200": {
+    "description": "Success",
+    "content": {
+      "application/json": {
+        "schema": {
+          "type": "object",
+          "properties": {
+            "api_keys": {
+              "type": "array",
+              "items": {
+                "type": "object",
+                "additionalProperties": true
+              }
+            }
+          },
+          "description": "Success"
+        }
+      }
+    }
+  }
+}
+```
+
+**Documented errors**
+
+400: Invalid request; 401: Invalid or missing credentials; 403: Permission denied; 404: Resource not found or unavailable; 409: Conflict or invalid state transition; 429: Rate limit exceeded; 500: Internal error; 503: Required service is not configured or unavailable
+
+## POST /v1/me/api-keys
+
+Submit me api keys
+
+User-session authentication only. Create/rotate require verified email and login within five minutes. Secret returned once; list contains metadata only. Maximum 20 active keys; expiry 1–90 days. Scopes never exceed live account permissions. Rotation immediately revokes old key.
+
+**Security**
+
+```json
+[
+  {
+    "bearerAuth": []
+  }
+]
+```
+
+**Request body**
+
+```json
+{
+  "required": true,
+  "content": {
+    "application/json": {
+      "schema": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "name": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 80,
+            "pattern": "\\S"
+          },
+          "scopes": {
+            "type": "array",
+            "minItems": 1,
+            "maxItems": 2,
+            "uniqueItems": true,
+            "items": {
+              "type": "string",
+              "enum": [
+                "investigations:read",
+                "investigations:create"
+              ]
+            }
+          },
+          "expires_in_days": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 90,
+            "default": 30
+          }
+        },
+        "required": [
+          "name",
+          "scopes"
+        ]
+      }
+    }
+  }
+}
+```
+
+**Success responses**
+
+```json
+{
+  "201": {
+    "description": "Success",
+    "content": {
+      "application/json": {
+        "schema": {
+          "type": "object",
+          "properties": {
+            "api_key": {
+              "type": "object",
+              "additionalProperties": true
+            },
+            "secret": {
+              "type": "string"
+            }
+          },
+          "description": "Success"
+        }
+      }
+    }
+  }
+}
+```
+
+**Documented errors**
+
+400: Invalid request; 401: Invalid or missing credentials; 403: Permission denied; 404: Resource not found or unavailable; 409: Conflict or invalid state transition; 429: Rate limit exceeded; 500: Internal error; 503: Required service is not configured or unavailable
+
+## DELETE /v1/me/api-keys/{id}
+
+Delete me api keys  id
+
+User-session authentication only. Create/rotate require verified email and login within five minutes. Secret returned once; list contains metadata only. Maximum 20 active keys; expiry 1–90 days. Scopes never exceed live account permissions. Rotation immediately revokes old key.
+
+**Security**
+
+```json
+[
+  {
+    "bearerAuth": []
+  }
+]
+```
+
+**Path and query parameters**
+
+```json
+[
+  {
+    "schema": {
+      "type": "string",
+      "format": "uuid"
+    },
+    "in": "path",
+    "name": "id",
+    "required": true
+  }
+]
+```
+
+**Request body**
+
+No request body is required.
+
+**Success responses**
+
+```json
+{
+  "204": {
+    "description": "No content"
+  }
+}
+```
+
+**Documented errors**
+
+400: Invalid request; 401: Invalid or missing credentials; 403: Permission denied; 404: Resource not found or unavailable; 409: Conflict or invalid state transition; 429: Rate limit exceeded; 500: Internal error; 503: Required service is not configured or unavailable
+
+## POST /v1/me/api-keys/{id}/rotate
+
+Submit me api keys  id rotate
+
+User-session authentication only. Create/rotate require verified email and login within five minutes. Secret returned once; list contains metadata only. Maximum 20 active keys; expiry 1–90 days. Scopes never exceed live account permissions. Rotation immediately revokes old key.
+
+**Security**
+
+```json
+[
+  {
+    "bearerAuth": []
+  }
+]
+```
+
+**Path and query parameters**
+
+```json
+[
+  {
+    "schema": {
+      "type": "string",
+      "format": "uuid"
+    },
+    "in": "path",
+    "name": "id",
+    "required": true
+  }
+]
+```
+
+**Request body**
+
+No request body is required.
+
+**Success responses**
+
+```json
+{
+  "201": {
+    "description": "Success",
+    "content": {
+      "application/json": {
+        "schema": {
+          "type": "object",
+          "properties": {
+            "api_key": {
+              "type": "object",
+              "additionalProperties": true
+            },
+            "secret": {
+              "type": "string"
+            }
+          },
+          "description": "Success"
+        }
+      }
+    }
+  }
+}
+```
+
+**Documented errors**
+
+400: Invalid request; 401: Invalid or missing credentials; 403: Permission denied; 404: Resource not found or unavailable; 409: Conflict or invalid state transition; 429: Rate limit exceeded; 500: Internal error; 503: Required service is not configured or unavailable
+
+## GET /v1/me/bookmarks
+
+Get me bookmarks
+
+Enabled platform extension and user-session authentication required. Owner-only records; list limit defaults to 20 (maximum 100), offset defaults to zero (maximum 10000). Bookmarks additionally require investigation read permission. Notifications are in-app and contain related record IDs, not private evidence.
+
+**Security**
+
+```json
+[
+  {
+    "bearerAuth": []
+  }
+]
+```
+
+**Path and query parameters**
+
+```json
+[
+  {
+    "schema": {
+      "type": "integer",
+      "minimum": 1,
+      "maximum": 100,
+      "default": 20
+    },
+    "in": "query",
+    "name": "limit",
+    "required": false
+  },
+  {
+    "schema": {
+      "type": "integer",
+      "minimum": 0,
+      "maximum": 10000,
+      "default": 0
+    },
+    "in": "query",
+    "name": "offset",
+    "required": false
+  }
+]
+```
+
+**Request body**
+
+No request body is required.
+
+**Success responses**
+
+```json
+{
+  "200": {
+    "description": "Success",
+    "content": {
+      "application/json": {
+        "schema": {
+          "type": "object",
+          "properties": {
+            "bookmarks": {
+              "type": "array",
+              "items": {
+                "type": "object",
+                "additionalProperties": true
+              }
+            }
+          },
+          "description": "Success"
+        }
+      }
+    }
+  }
+}
+```
+
+**Documented errors**
+
+400: Invalid request; 401: Invalid or missing credentials; 403: Permission denied; 404: Resource not found or unavailable; 409: Conflict or invalid state transition; 429: Rate limit exceeded; 500: Internal error; 503: Required service is not configured or unavailable
+
+## GET /v1/me/business-invitations
+
+Get me business invitations
+
+Verified user-session authentication. Only invitations to your verified account email are listed/accepted; expired/revoked invitations and invitations from a previous owner are unavailable.
+
+**Security**
+
+```json
+[
+  {
+    "bearerAuth": []
+  }
+]
+```
+
+**Path and query parameters**
+
+```json
+[
+  {
+    "schema": {
+      "type": "integer",
+      "minimum": 1,
+      "maximum": 100,
+      "default": 20
+    },
+    "in": "query",
+    "name": "limit",
+    "required": false
+  },
+  {
+    "schema": {
+      "type": "integer",
+      "minimum": 0,
+      "maximum": 10000,
+      "default": 0
+    },
+    "in": "query",
+    "name": "offset",
+    "required": false
+  }
+]
+```
+
+**Request body**
+
+No request body is required.
+
+**Success responses**
+
+```json
+{
+  "200": {
+    "description": "Success",
+    "content": {
+      "application/json": {
+        "schema": {
+          "type": "object",
+          "properties": {
+            "invitations": {
+              "type": "array",
+              "items": {
+                "type": "object",
+                "additionalProperties": true
+              }
+            }
+          },
+          "description": "Success"
+        }
+      }
+    }
+  }
+}
+```
+
+**Documented errors**
+
+400: Invalid request; 401: Invalid or missing credentials; 403: Permission denied; 404: Resource not found or unavailable; 409: Conflict or invalid state transition; 429: Rate limit exceeded; 500: Internal error; 503: Required service is not configured or unavailable
+
+## POST /v1/me/business-invitations/{id}/accept
+
+Submit me business invitations  id accept
+
+Verified user-session authentication. Only invitations to your verified account email are listed/accepted; expired/revoked invitations and invitations from a previous owner are unavailable.
+
+**Security**
+
+```json
+[
+  {
+    "bearerAuth": []
+  }
+]
+```
+
+**Path and query parameters**
+
+```json
+[
+  {
+    "schema": {
+      "type": "string",
+      "format": "uuid"
+    },
+    "in": "path",
+    "name": "id",
+    "required": true
+  }
+]
+```
+
+**Request body**
+
+No request body is required.
+
+**Success responses**
+
+```json
+{
+  "200": {
+    "description": "Success",
+    "content": {
+      "application/json": {
+        "schema": {
+          "type": "object",
+          "properties": {
+            "accepted": {
+              "type": "boolean"
+            }
+          },
+          "description": "Success"
+        }
+      }
+    }
+  }
+}
+```
+
+**Documented errors**
+
+400: Invalid request; 401: Invalid or missing credentials; 403: Permission denied; 404: Resource not found or unavailable; 409: Conflict or invalid state transition; 429: Rate limit exceeded; 500: Internal error; 503: Required service is not configured or unavailable
+
+## GET /v1/me/notification-preferences
+
+Get me notification preferences
+
+Enabled platform extension and user-session authentication required. Owner-only records; list limit defaults to 20 (maximum 100), offset defaults to zero (maximum 10000). Bookmarks additionally require investigation read permission. Notifications are in-app and contain related record IDs, not private evidence.
+
+**Security**
+
+```json
+[
+  {
+    "bearerAuth": []
+  }
+]
+```
+
+**Request body**
+
+No request body is required.
+
+**Success responses**
+
+```json
+{
+  "200": {
+    "description": "Success",
+    "content": {
+      "application/json": {
+        "schema": {
+          "type": "object",
+          "properties": {
+            "preferences": {
+              "type": "array",
+              "items": {
+                "type": "object",
+                "additionalProperties": true
+              }
+            }
+          },
+          "description": "Success"
+        }
+      }
+    }
+  }
+}
+```
+
+**Documented errors**
+
+400: Invalid request; 401: Invalid or missing credentials; 403: Permission denied; 404: Resource not found or unavailable; 409: Conflict or invalid state transition; 429: Rate limit exceeded; 500: Internal error; 503: Required service is not configured or unavailable
+
+## PATCH /v1/me/notification-preferences
+
+Update me notification preferences
+
+Enabled platform extension and user-session authentication required. Owner-only records; list limit defaults to 20 (maximum 100), offset defaults to zero (maximum 10000). Bookmarks additionally require investigation read permission. Notifications are in-app and contain related record IDs, not private evidence.
+
+**Security**
+
+```json
+[
+  {
+    "bearerAuth": []
+  }
+]
+```
+
+**Request body**
+
+```json
+{
+  "required": true,
+  "content": {
+    "application/json": {
+      "schema": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "notification_type": {
+            "type": "string",
+            "enum": [
+              "investigation.completed",
+              "investigation.failed",
+              "business.invitation"
+            ]
+          },
+          "enabled": {
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "notification_type",
+          "enabled"
+        ]
+      }
+    }
+  }
+}
+```
+
+**Success responses**
+
+```json
+{
+  "200": {
+    "description": "Success",
+    "content": {
+      "application/json": {
+        "schema": {
+          "type": "object",
+          "properties": {
+            "preference": {
+              "type": "object",
+              "additionalProperties": true
+            }
+          },
+          "description": "Success"
+        }
+      }
+    }
+  }
+}
+```
+
+**Documented errors**
+
+400: Invalid request; 401: Invalid or missing credentials; 403: Permission denied; 404: Resource not found or unavailable; 409: Conflict or invalid state transition; 429: Rate limit exceeded; 500: Internal error; 503: Required service is not configured or unavailable
+
+## GET /v1/me/notifications
+
+Get me notifications
+
+Enabled platform extension and user-session authentication required. Owner-only records; list limit defaults to 20 (maximum 100), offset defaults to zero (maximum 10000). Bookmarks additionally require investigation read permission. Notifications are in-app and contain related record IDs, not private evidence.
+
+**Security**
+
+```json
+[
+  {
+    "bearerAuth": []
+  }
+]
+```
+
+**Path and query parameters**
+
+```json
+[
+  {
+    "schema": {
+      "type": "integer",
+      "minimum": 1,
+      "maximum": 100,
+      "default": 20
+    },
+    "in": "query",
+    "name": "limit",
+    "required": false
+  },
+  {
+    "schema": {
+      "type": "integer",
+      "minimum": 0,
+      "maximum": 10000,
+      "default": 0
+    },
+    "in": "query",
+    "name": "offset",
+    "required": false
+  },
+  {
+    "schema": {
+      "type": "boolean",
+      "default": false
+    },
+    "in": "query",
+    "name": "unread_only",
+    "required": false
+  }
+]
+```
+
+**Request body**
+
+No request body is required.
+
+**Success responses**
+
+```json
+{
+  "200": {
+    "description": "Success",
+    "content": {
+      "application/json": {
+        "schema": {
+          "type": "object",
+          "properties": {
+            "notifications": {
+              "type": "array",
+              "items": {
+                "type": "object",
+                "additionalProperties": true
+              }
+            }
+          },
+          "description": "Success"
+        }
+      }
+    }
+  }
+}
+```
+
+**Documented errors**
+
+400: Invalid request; 401: Invalid or missing credentials; 403: Permission denied; 404: Resource not found or unavailable; 409: Conflict or invalid state transition; 429: Rate limit exceeded; 500: Internal error; 503: Required service is not configured or unavailable
+
+## POST /v1/me/notifications/{id}/read
+
+Submit me notifications  id read
+
+Enabled platform extension and user-session authentication required. Owner-only records; list limit defaults to 20 (maximum 100), offset defaults to zero (maximum 10000). Bookmarks additionally require investigation read permission. Notifications are in-app and contain related record IDs, not private evidence.
+
+**Security**
+
+```json
+[
+  {
+    "bearerAuth": []
+  }
+]
+```
+
+**Path and query parameters**
+
+```json
+[
+  {
+    "schema": {
+      "type": "string",
+      "format": "uuid"
+    },
+    "in": "path",
+    "name": "id",
+    "required": true
+  }
+]
+```
+
+**Request body**
+
+No request body is required.
+
+**Success responses**
+
+```json
+{
+  "200": {
+    "description": "Success",
+    "content": {
+      "application/json": {
+        "schema": {
+          "type": "object",
+          "properties": {
+            "notification": {
               "type": "object",
               "additionalProperties": true
             }

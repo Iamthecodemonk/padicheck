@@ -1,5 +1,11 @@
 # Email OTP signup and Google login
 
+The approved [platform extension](platform-extension.md) adds registered sessions,
+logout everywhere and authenticator 2FA/recovery codes. When enabled, enrolled
+users receive `mfa_required` from password/Google login and must complete
+`POST /v1/auth/mfa/verify` before receiving an access token. Session persistence
+remains 15 minutes, no refresh token, in-memory browser storage.
+
 Signup now requires email verification. This is an intentional API contract
 change: `POST /v1/auth/register` returns **202 and a challenge**, not an account or
 JWT. Existing password login/logout and backend RBAC remain available.
@@ -8,7 +14,7 @@ JWT. Existing password login/logout and backend RBAC remain available.
 
 1. `POST /v1/auth/register` with `display_name`, `email`, `password` (12–128
    characters). The API hashes the password, stores a pending challenge in Redis
-   and sends a six-digit email code. It returns `{challenge_id, expires_in: 600,
+   and queues a six-digit email code. It returns `{challenge_id, expires_in: 600,
    message}`. No PostgreSQL user or identity exists yet.
 2. `POST /v1/auth/register/verify` with `email`, `challenge_id`, `code` (a six-digit
    **string**, including leading zeros). On success the API atomically creates
@@ -28,7 +34,7 @@ limits also apply. Email case is normalized; provider-specific aliases are not.
 Existing emails receive the same 202 challenge response without a new email or
 identity being created. Cooldowns/quotas apply to both existing and new addresses.
 This avoids an explicit account-existence response at the request step, although
-SMTP latency is not a constant-time anonymity guarantee. Wrong, exhausted,
+Request latency is not a constant-time anonymity guarantee. Wrong, exhausted,
 expired or already-consumed codes return `400 invalid_otp`.
 
 Pending Redis records contain a password **hash**, never the password, and a
@@ -39,7 +45,7 @@ as a protected data store because pending records contain email/profile data and
 password hashes. Expired records disappear automatically. JWT-secret rotation
 invalidates outstanding OTP/nonces as well as old JWTs.
 
-A delivery failure invalidates that challenge but retains anti-abuse limits. A
+A queue submission failure invalidates that challenge but retains anti-abuse limits. A
 successful code check consumes the challenge before the database transaction.
 If database creation fails, no partial account remains; request a fresh code
 after the cooldown. This deliberately does not promise cross-store exactly-once
@@ -127,6 +133,50 @@ includes SMTP connection/auth verification (without sending email) and Google's
 public OIDC metadata (which cannot prove a particular client ID's configuration).
 Actual signup/mailbox delivery and Google tokens still need live acceptance.
 
+## Background OTP delivery
+
+Run `npm.cmd run email:worker:dev` alongside the API during development. After
+building, deploy a separate process with `npm.cmd run email:worker:start`.
+The API and email worker must share `REDIS_URL` and `JWT_SECRET`. The worker
+verifies SMTP and Redis on startup, uses two pooled SMTP connections, and drains
+active sends before shutting down. This worker is separate from source collection.
+
+The API now returns 202 after queue acceptance rather than waiting for SMTP.
+202 does **not** guarantee inbox delivery. The existing response shape is unchanged;
+its generic message now says the email is queued. SMTP failures occur in the worker;
+queue submission failures retain the existing `503 email_delivery_failed` code.
+The API readiness check checks the email queue, not worker liveness or SMTP delivery.
+Run/monitor the worker separately and alert on exhausted delivery attempts.
+
+The BullMQ queue `padicheck-otp-email-v1` retries up to three times with exponential
+backoff starting at five seconds. Each attempt checks the current Redis challenge
+and its TTL: replaced, consumed, expired, or less-than-30-seconds-remaining codes
+are skipped. Expiry is still ten minutes from the request, not from delivery.
+After an exhausted send failure the challenge expires normally; the user can
+request a fresh code after the existing cooldown. In-flight SMTP delivery cannot
+be recalled, and ambiguous SMTP acknowledgments/restarted workers can cause
+duplicate messages containing the same code. OTP consumption remains single-use.
+
+Job payloads (recipient/code/context) use AES-256-GCM with a separate key derived
+from `JWT_SECRET`; raw codes do not appear in Redis job metadata or logs. Completed
+and terminal failed jobs are removed. Waiting jobs remain encrypted in Redis until
+processed, including during worker downtime; use authenticated Redis and a durable
+no-eviction deployment. Secret rotation makes outstanding jobs unreadable, so users
+must request fresh codes. No PostgreSQL schema changes are needed.
+
+The HTML email uses inline styles, selectable code text, a plain-text alternative,
+expiry guidance and no remote images/tracking. Preview the dummy-code rendering in
+[otp-email-preview.html](otp-email-preview.html). SMTP pooling reduces repeated
+connection handshakes, but provider/inbox latency remains outside the API's control.
+
+Implementation references: [Nodemailer pooling](https://nodemailer.com/smtp/pooled)
+and [BullMQ retries](https://docs.bullmq.io/guide/retrying-failing-jobs).
+
+`npm.cmd run email:smoke` uses a unique scratch Redis queue and an explicit mail
+sink to check real BullMQ enqueueing without a worker, retries, stale-code skipping
+and cleanup. It sends no real emails. Per-email synthetic cooldown/quota keys expire
+within an hour. It never changes the production email queue.
+
 The existing `users.email_verified_at` and `user_auth_accounts` columns/constraints
 support this feature. No PostgreSQL schema or baseline migration was changed.
 Ephemeral OTP/nonces use Redis, not fabricated SQL tables or provider subjects.
@@ -142,7 +192,7 @@ password account requires explicit linking through the normal authenticated API.
 The harness binds loopback, requires its local origin for test requests, and closes
 after 15 minutes. Its routes are never registered by the production server.
 
-For live email signup acceptance, configure SMTP and Redis, then run
+For live email signup acceptance, configure SMTP and Redis, start the email worker, then run
 `npm.cmd run email:test` and open `http://localhost:3000/__email-test/`. Enter an
 unused email address you own and a new password on the local page, then enter the
 code delivered to that mailbox. Submitting sends real mail; verification creates

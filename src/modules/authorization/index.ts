@@ -3,11 +3,12 @@ import type { Database } from '../../database/index.js';
 import { ApiError } from '../../errors.js';
 import { createHash } from 'node:crypto';
 import type { TokenRevocations } from '../auth/revocations.js';
+import { apiKeyPrincipal } from '../platform/api-keys.js';
 
 declare module '@fastify/jwt' {
   interface FastifyJWT {
-    payload: { sub: string; jti?: string };
-    user: { sub: string; jti?: string; exp: number };
+    payload: { sub: string; jti?: string; stage?: 'access' | 'mfa' };
+    user: { sub: string; jti?: string; exp: number; stage?: 'access' | 'mfa' };
   }
 }
 
@@ -24,10 +25,14 @@ declare module 'fastify' {
   interface FastifyRequest { principal: Principal | null }
 }
 
-export function authorization(app: FastifyInstance, db: Database, revocations: TokenRevocations) {
+export function authorization(app: FastifyInstance, db: Database, revocations: TokenRevocations, platformEnabled = false) {
   app.decorateRequest('principal', null);
 
   async function authenticate(request: FastifyRequest) {
+    if(platformEnabled&&request.headers['x-api-key']){
+      if(request.headers.authorization)throw new ApiError(400,'ambiguous_credentials','Use either Bearer authentication or X-API-Key');
+      request.principal=await apiKeyPrincipal(db,request);return;
+    }
     try {
       await request.jwtVerify();
     } catch {
@@ -38,6 +43,12 @@ export function authorization(app: FastifyInstance, db: Database, revocations: T
       throw new ApiError(401, 'unauthorized', 'Invalid access token subject');
     }
     if (await revocations.has(tokenDigest(request))) throw new ApiError(401, 'unauthorized', 'Access token has been revoked');
+    if (request.user.stage === 'mfa') throw new ApiError(401, 'mfa_required', 'Complete two-factor authentication');
+    if (platformEnabled) {
+      const session = await db.query(`SELECT 1 FROM auth_sessions WHERE users_id=$1 AND jti_hash=$2 AND revoked_at IS NULL AND expires_at>now()`,
+        [request.user.sub, createHash('sha256').update(request.user.jti ?? '').digest('hex')]);
+      if (!session.rowCount) throw new ApiError(401, 'unauthorized', 'Session is expired or revoked');
+    }
     const result = await db.query<Principal>(`
       SELECT u.users_id, u.display_name, u.email, u.email_verified_at,
         COALESCE(array_agg(DISTINCT r.role_key) FILTER (WHERE r.role_key IS NOT NULL), '{}') AS roles,
