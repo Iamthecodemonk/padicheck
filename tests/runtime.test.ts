@@ -50,7 +50,7 @@ test('startup and drain deadlines are bounded',async()=>{
 test('integration checks distinguish missing configuration from actual failures and sanitize errors',async()=>{
   const calls:string[]=[];
   const probes:IntegrationProbes={database:async()=>{calls.push('database');},redis:async()=>{throw new Error('SECRET_CONNECTION_STRING');},
-    cloudinary:async()=>{},ultrasearch:async()=>{},gemini:async()=>{},research_registry:async()=>{},smtp:async()=>{},google:async()=>{}};
+    cloudinary:async()=>{},ultrasearch:async()=>{},gemini:async()=>{},research_registry:async()=>{},smtp:async()=>{},google:async()=>{},billing_schema:async()=>{}};
   const results=await checkIntegrations(loadConfig(env),probes);
   assert.deepEqual(calls,['database']);assert.equal(results.find(result=>result.name==='gemini')!.status,'unconfigured');
   assert.equal(results.find(result=>result.name==='research_registry')!.status,'disabled');

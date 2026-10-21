@@ -12,10 +12,11 @@ export interface AuthChallenges {
   close(): Promise<void>;
 }
 export interface OtpMailer {
-  sendCode(email: string, code: string): Promise<void>;
+  sendCode(email: string, code: string, context?: OtpDeliveryContext): Promise<void>;
   verify(): Promise<void>;
-  close(): void;
+  close(): void | Promise<void>;
 }
+export type OtpDeliveryContext = { key: string; challenge_id: string; expires_at: number };
 export type GoogleIdentity = { sub: string; email: string; name: string; nonce: string; authoritative_email: boolean };
 export interface GoogleVerifier { verify(idToken: string): Promise<GoogleIdentity> }
 export type AuthDependencies = { challenges?: AuthChallenges; mailer?: OtpMailer; google?: GoogleVerifier };

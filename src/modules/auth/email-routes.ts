@@ -24,10 +24,10 @@ export async function emailAuthRoutes(app:FastifyInstance,db:Database,access:Aut
     const record={...pending,challenge_id:id,code_digest:codeKey(pending.email,id,code,pending.purpose)};
     if(!await store.putOtp(emailKey(pending.email),record))throw new ApiError(429,'otp_rate_limited','Wait before requesting another code');
     if(deliver){
-      try{await mailer.sendCode(pending.email,code);}
-      catch{await store.discardOtp(emailKey(pending.email),id);throw new ApiError(503,'email_delivery_failed','The verification email could not be sent');}
+      try{await mailer.sendCode(pending.email,code,{key:emailKey(pending.email),challenge_id:id,expires_at:Date.now()+600000});}
+      catch{await store.discardOtp(emailKey(pending.email),id);throw new ApiError(503,'email_delivery_failed','The verification email could not be queued');}
     }
-    return {challenge_id:id,expires_in:600,message:'If eligible, a verification code has been sent to this email.'};
+    return {challenge_id:id,expires_in:600,message:'If eligible, a verification email has been queued. Check your inbox shortly.'};
   }
   async function consume(input:Verify,purpose:PendingOtp['purpose']){
     const {store}=available();const email=input.email.trim().toLowerCase();

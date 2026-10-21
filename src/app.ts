@@ -21,13 +21,18 @@ import { trustRoutes } from './modules/trust/routes.js';
 import { sharingRoutes } from './modules/sharing/routes.js';
 import { databaseReadiness, researchReadiness } from './runtime/readiness.js';
 import { redisAuthChallenges } from './adapters/auth-challenges.js';
-import { smtpMailer } from './adapters/smtp.js';
+import { queuedOtpMailer } from './adapters/otp-email-jobs.js';
 import { googleIdentity } from './adapters/google-identity.js';
 import type { AuthDependencies } from './modules/auth/identity-types.js';
 import { createLogger } from './logger.js';
+import { registerDocumentation } from './documentation.js';
+import { billingRoutes } from './modules/billing/routes.js';
+import { consumeUnit, billingReadiness } from './modules/billing/service.js';
+import { bachsProvider } from './adapters/bachs.js';
+import type { BillingProvider } from './modules/billing/types.js';
 
 export function buildApp(config: AppConfig, database?: Database,
-  dependencies: { storage?: MediaStorage; revocations?: TokenRevocations; jobs?: InvestigationJobs; auth?: AuthDependencies } = {}) {
+  dependencies: { storage?: MediaStorage; revocations?: TokenRevocations; jobs?: InvestigationJobs; auth?: AuthDependencies; billing?:BillingProvider } = {}) {
   const app = Fastify({
     loggerInstance: createLogger('api', config.logLevel) as FastifyBaseLogger,
     bodyLimit: 1024 * 1024,
@@ -37,16 +42,16 @@ export function buildApp(config: AppConfig, database?: Database,
     ajv: { customOptions: { removeAdditional: false } },
   });
 
-  // Liveness only: this does not claim database or provider readiness.
-  app.get('/health', async () => ({ status: 'ok', service: 'padicheck-backend' }));
+  registerDocumentation(app, config.uploadMaxBytes);
 
   const db = database ?? createDatabase(config.databaseUrl);
   const revocations = dependencies.revocations ?? (config.redisUrl ? redisRevocations(config.redisUrl) : memoryRevocations());
   const storage = dependencies.storage ?? (config.cloudinary ? cloudinaryStorage(config.cloudinary) : undefined);
   const jobs = dependencies.jobs ?? (config.redisUrl ? investigationJobs(config.redisUrl) : undefined);
+  const billing=dependencies.billing??(config.bachs?bachsProvider(config.bachs):undefined);
   const identity:AuthDependencies={
     challenges:dependencies.auth?.challenges??(config.redisUrl?redisAuthChallenges(config.redisUrl):undefined),
-    mailer:dependencies.auth?.mailer??(config.smtp?smtpMailer(config.smtp):undefined),
+    mailer:dependencies.auth?.mailer??(config.smtp&&config.redisUrl?queuedOtpMailer(config.redisUrl,config.jwtSecret):undefined),
     google:dependencies.auth?.google??(config.googleClientId?googleIdentity(config.googleClientId):undefined),
   };
   app.addHook('onClose', async () => {
@@ -83,39 +88,48 @@ export function buildApp(config: AppConfig, database?: Database,
     return reply.code(500).send({ error: { code: 'internal_error', message: 'The request could not be completed' }, request_id: request.id });
   });
 
-  app.get('/ready', async (_request, reply) => {
-    try {
-      await databaseReadiness(db);
-      await researchReadiness(db,config);
-      await revocations.ping();
-      if (jobs) await jobs.ping();
-      if(identity.challenges&&(identity.mailer||identity.google))await identity.challenges.ping();
-      return { status: 'ready', background_jobs: jobs ? 'configured' : 'unconfigured',
-        media_storage: storage ? 'configured' : 'unconfigured', research: config.researchEnabled ? 'enabled' : 'disabled',
-        email_signup:identity.mailer&&identity.challenges?'configured':'unconfigured',google_signin:identity.google&&identity.challenges?'configured':'unconfigured' };
-    } catch {
-      return reply.code(503).send({ status: 'unavailable' });
-    }
-  });
+  app.after(() => {
+    app.get('/health', async () => ({ status: 'ok', service: 'padicheck-backend' }));
 
-  app.register(async api => {
-    await api.register(jwt, {
-      secret: config.jwtSecret,
-      sign: { algorithm: 'HS256', expiresIn: '15m', iss: 'padicheck', aud: 'padicheck-api' },
-      verify: { algorithms: ['HS256'], allowedIss: 'padicheck', allowedAud: 'padicheck-api' },
+    app.get('/ready', async (_request, reply) => {
+      try {
+        await databaseReadiness(db);
+        await researchReadiness(db,config);
+        if(config.billingEnabled)await billingReadiness(db);
+        await revocations.ping();
+        if (jobs) await jobs.ping();
+        if(identity.challenges&&(identity.mailer||identity.google))await identity.challenges.ping();
+        if(identity.mailer)await identity.mailer.verify();
+        return { status: 'ready', background_jobs: jobs ? 'configured' : 'unconfigured',
+          media_storage: storage ? 'configured' : 'unconfigured', research: config.researchEnabled ? 'enabled' : 'disabled',
+          email_signup:identity.mailer&&identity.challenges?'configured':'unconfigured',google_signin:identity.google&&identity.challenges?'configured':'unconfigured',
+          billing:config.billingEnabled?'enabled':'disabled' };
+      } catch {
+        return reply.code(503).send({ status: 'unavailable' });
+      }
     });
-    await api.register(rateLimit, { global: false });
-    await api.register(multipart, { limits: { files: 1, fields: 0, parts: 1, fileSize: config.uploadMaxBytes } });
-    const access = authorization(api, db, revocations);
-    await authRoutes(api, db, access, revocations, identity, config.jwtSecret);
-    await adminRoutes(api, db, access);
-    await researchAdminRoutes(api, db, access);
-    await mediaRoutes(api, db, access, storage, config.uploadMaxBytes);
-    await investigationRoutes(api, db, access, jobs, config.researchEnabled);
-    await directoryRoutes(api, db, access);
-    await trustRoutes(api, db, access);
-    await sharingRoutes(api, db, access);
-  });
 
+    app.register(async api => {
+      await api.register(jwt, {
+        secret: config.jwtSecret,
+        sign: { algorithm: 'HS256', expiresIn: '15m', iss: 'padicheck', aud: 'padicheck-api' },
+        verify: { algorithms: ['HS256'], allowedIss: 'padicheck', allowedAud: 'padicheck-api' },
+      });
+      await api.register(rateLimit, { global: false });
+      await api.register(multipart, { limits: { files: 1, fields: 0, parts: 1, fileSize: config.uploadMaxBytes } });
+      const access = authorization(api, db, revocations);
+      await authRoutes(api, db, access, revocations, identity, config.jwtSecret);
+      await adminRoutes(api, db, access);
+      await researchAdminRoutes(api, db, access);
+      await mediaRoutes(api, db, access, storage, config.uploadMaxBytes);
+      await billingRoutes(api,db,access,config,billing);
+      await investigationRoutes(api, db, access, jobs, config.researchEnabled,
+        config.billingEnabled?(client,userId,id)=>consumeUnit(client,userId,id,config.bachsEnvironment):undefined);
+      await directoryRoutes(api, db, access);
+      await trustRoutes(api, db, access);
+      await sharingRoutes(api, db, access);
+    });
+
+  });
   return app;
 }

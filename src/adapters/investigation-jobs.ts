@@ -1,4 +1,5 @@
 import { Queue, type RedisOptions } from 'bullmq';
+import { isIP } from 'node:net';
 import type { InvestigationJobs, QueueState } from '../modules/investigations/types.js';
 
 export const sourceCollectionQueue = 'padicheck-source-collection-v1';
@@ -14,7 +15,20 @@ export interface CollectionQueueTransport {
 }
 
 export function queueConnection(url: string, worker = false): RedisOptions {
-  return { url, connectTimeout: 3000, maxRetriesPerRequest: worker ? null : 1,
+  // ioredis options objects do not interpret a `url` property. Parse the URL
+  // explicitly so queues/workers use the same host, credentials and DB as auth.
+  const parsed = new URL(url);
+  if (!['redis:', 'rediss:'].includes(parsed.protocol) || !/^\/(?:\d+)?$/.test(parsed.pathname || '/') || parsed.search || parsed.hash) {
+    throw new Error('Invalid Redis queue connection URL');
+  }
+  const host = parsed.hostname.replace(/^\[|\]$/g, '');
+  const database = Number(parsed.pathname.slice(1) || 0);
+  if (!Number.isSafeInteger(database) || database < 0) throw new Error('Invalid Redis queue database');
+  return { host, port: Number(parsed.port || 6379), db: database,
+    ...(parsed.username ? { username: decodeURIComponent(parsed.username) } : {}),
+    ...(parsed.password ? { password: decodeURIComponent(parsed.password) } : {}),
+    ...(parsed.protocol === 'rediss:' ? { tls: isIP(host) ? {} : { servername: host } } : {}),
+    connectTimeout: 3000, maxRetriesPerRequest: worker ? null : 1,
     enableOfflineQueue: worker, retryStrategy: (times: number) => Math.min(times * 250, 2000) };
 }
 

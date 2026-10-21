@@ -101,8 +101,26 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env) {
   if (nodeEnv === 'production' && researchEnabled && (!ultraSearchUrl || !geminiConfigured)) {
     throw new Error('Enabled production research requires ULTRASEARCH_URL and GEMINI_API_KEY');
   }
+  if (env.BILLING_ENABLED && !['true','false'].includes(env.BILLING_ENABLED)) throw new Error('BILLING_ENABLED must be true or false');
+  const billingEnabled = env.BILLING_ENABLED === 'true';
+  const bachsEnvironment = env.BACHS_ENVIRONMENT || 'sandbox';
+  if (!['sandbox','production'].includes(bachsEnvironment)) throw new Error('BACHS_ENVIRONMENT must be sandbox or production');
+  const bachsValues = [env.BACHS_API_KEY,env.BACHS_WEBHOOK_SECRET,env.BACHS_ORGANIZATION_ID,env.BACHS_SUCCESS_URL,env.BACHS_CANCEL_URL];
+  let bachs: { environment: 'sandbox'|'production'; apiKey:string; webhookSecret:string; organizationId:string; successUrl:string; cancelUrl:string } | undefined;
+  if (bachsValues.some(Boolean) || billingEnabled) {
+    if (!bachsValues.every(Boolean)) throw new Error('Set all Bachs credentials, organization and return URLs before enabling billing');
+    if (!env.BACHS_API_KEY!.startsWith(bachsEnvironment==='sandbox'?'sk_sandbox_':'sk_live_')) throw new Error('BACHS_API_KEY does not match BACHS_ENVIRONMENT');
+    if (env.BACHS_WEBHOOK_SECRET!.length < 16 || !/^acct_[a-zA-Z0-9_-]{1,200}$/.test(env.BACHS_ORGANIZATION_ID!)) throw new Error('Invalid Bachs webhook secret or organization ID');
+    for (const value of [env.BACHS_SUCCESS_URL!,env.BACHS_CANCEL_URL!]) {
+      try { const url=new URL(value); if(url.protocol!=='https:'||url.username||url.password||url.hash||url.hostname==='localhost'||isIP(url.hostname)||!url.hostname.includes('.'))throw new Error(); }
+      catch { throw new Error('Bachs return URLs must be public HTTPS URLs without credentials or fragments'); }
+    }
+    bachs = {environment:bachsEnvironment as 'sandbox'|'production',apiKey:env.BACHS_API_KEY!,webhookSecret:env.BACHS_WEBHOOK_SECRET!,
+      organizationId:env.BACHS_ORGANIZATION_ID!,successUrl:env.BACHS_SUCCESS_URL!,cancelUrl:env.BACHS_CANCEL_URL!};
+  }
   return { nodeEnv, port, host, logLevel, databaseUrl, jwtSecret, redisUrl, cloudinary, uploadMaxBytes, workerConcurrency, reconcileIntervalMs,
-    researchEnabled, ultraSearchUrl, geminiConfigured, startupTimeoutMs, shutdownTimeoutMs, requestTimeoutMs, trustProxy, smtp, googleClientId };
+    researchEnabled, ultraSearchUrl, geminiConfigured, startupTimeoutMs, shutdownTimeoutMs, requestTimeoutMs, trustProxy, smtp, googleClientId,
+    billingEnabled, bachsEnvironment: bachsEnvironment as 'sandbox'|'production', bachs };
 }
 
 export type AppConfig = ReturnType<typeof loadConfig>;

@@ -11,7 +11,8 @@ const paramsSchema = { type: 'object', additionalProperties: false, required: ['
 type Params = { investigation_id: string };
 type SourceRow = { source_id: string; source_type: string; url: string | null; media_id: string | null; [key: string]: unknown };
 
-export async function investigationRoutes(app: FastifyInstance, db: Database, access: Authorization, jobs?: InvestigationJobs, researchEnabled = false) {
+export async function investigationRoutes(app: FastifyInstance, db: Database, access: Authorization, jobs?: InvestigationJobs, researchEnabled = false,
+  consume?:Parameters<typeof createInvestigation>[3]) {
   app.addHook('onSend', async (request, reply, payload) => {
     if (request.url.startsWith('/v1/investigations')) reply.header('Cache-Control', 'no-store');
     return payload;
@@ -32,7 +33,7 @@ export async function investigationRoutes(app: FastifyInstance, db: Database, ac
     bodyLimit: 64 * 1024, schema: { body: createSchema },
     config: { rateLimit: { max: 20, timeWindow: '1 minute' } },
   }, async (request, reply) => {
-    const { investigation, revision } = await createInvestigation(db, request.principal!.users_id, request.body);
+    const { investigation, revision } = await createInvestigation(db, request.principal!.users_id, request.body, consume);
     const dispatch = await dispatchInvestigation(jobs, investigation.investigation_id, revision);
     if (dispatch === 'deferred') request.log.info({ investigation_id: investigation.investigation_id }, 'Investigation persisted; dispatch deferred');
     return reply.code(202).header('Location', `/v1/investigations/${investigation.investigation_id}`)

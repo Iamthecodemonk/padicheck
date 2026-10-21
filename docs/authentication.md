@@ -131,6 +131,27 @@ The existing `users.email_verified_at` and `user_auth_accounts` columns/constrai
 support this feature. No PostgreSQL schema or baseline migration was changed.
 Ephemeral OTP/nonces use Redis, not fabricated SQL tables or provider subjects.
 
+For a real Google account acceptance test, stop any server using port 3000, set
+the Google web client's Authorized JavaScript origin to `http://localhost:3000`,
+and run `npm.cmd run google:test`. Open `http://localhost:3000/__google-test/`
+and click the Google button. This development-only harness uses the real database,
+Redis and Google verifier. It may create an account, verifies protected access and
+single-use nonce rejection, then logs out and checks session revocation. Tokens
+stay out of logs and the PadiCheck access token stays on the server. An existing
+password account requires explicit linking through the normal authenticated API.
+The harness binds loopback, requires its local origin for test requests, and closes
+after 15 minutes. Its routes are never registered by the production server.
+
+For live email signup acceptance, configure SMTP and Redis, then run
+`npm.cmd run email:test` and open `http://localhost:3000/__email-test/`. Enter an
+unused email address you own and a new password on the local page, then enter the
+code delivered to that mailbox. Submitting sends real mail; verification creates
+a persistent account. The harness checks no account/password login exists before
+verification, verifies database persistence and a hashed password, rejects OTP
+reuse, tests password login, and revokes both test sessions. Passwords/codes never
+go in chat or logs. This loopback-only development harness expires after 20
+minutes; pending codes expire after ten. It is absent from the normal server.
+
 Tests use explicit mail/challenge/Google doubles, never a production bypass.
 `npm.cmd run auth:smoke` creates/removes a scratch PostgreSQL database and tests
 OTP account creation, concurrent consumption and password login with a mail sink

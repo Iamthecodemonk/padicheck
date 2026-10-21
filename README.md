@@ -18,12 +18,28 @@ run separately and reuse the API's domain modules and provider adapters.
 - Evidence-linked unverified findings, model-run records, and audited AI configuration APIs.
 - Structured logging with authorization and cookie redaction.
 - Graceful shutdown.
+- Opt-in Bachs one-time purchases, subscription allowances, signed durable webhooks and transactional investigation-unit consumption.
 
 The supplied schema is present and copied unchanged to the baseline migration.
 The configured local database has been aligned with the supplied schema using
 the approved legacy migration. See [schema-alignment.md](docs/schema-alignment.md)
 for the inspection and application record. Directory, verification, and moderation
-workflows remain later milestones. Research stays disabled until configured.
+workflows are implemented. Research stays disabled until configured. The approved
+billing extension is installed separately with `npm.cmd run db:billing-migrate`;
+billing remains disabled until merchant configuration and explicit activation.
+
+## Frontend handoff and payments
+
+Give your frontend AI [frontend-integration.md](docs/frontend-integration.md),
+[api-reference.md](docs/api-reference.md), and [openapi.json](docs/openapi.json).
+The first document includes a ready-to-copy prompt, signup/OTP/Google flows,
+request/response examples, IDs, pagination, polling, permissions and billing.
+The generated reference covers every registered endpoint. Regenerate/check it
+with `npm.cmd run docs:export` and `npm.cmd run docs:check`.
+
+See [payments.md](docs/payments.md) for Bachs setup, offer configuration,
+webhooks, subscription allowances and operational limitations. No merchant
+prices or credentials are seeded, and billing is disabled by default.
 
 ## Local setup
 
@@ -95,6 +111,12 @@ embedded PostgreSQL (PGlite); they do not mutate your configured database or
 require external provider credentials.
 
 ## Current API
+
+Interactive Swagger documentation for every endpoint is available at
+[http://127.0.0.1:3000/docs/](http://127.0.0.1:3000/docs/).
+Export the OpenAPI specification from `/docs/json` or `/docs/yaml`.
+Use **Authorize** with the `access_token` returned by login or completed signup.
+See [Using Swagger](docs/swagger.md) for OTP, Google and upload instructions.
 
 | Method | Path | Access |
 | --- | --- | --- |

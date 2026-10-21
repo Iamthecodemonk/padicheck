@@ -1,8 +1,27 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import { randomUUID } from 'node:crypto';
-import { createInvestigationJobAdapter, collectionJobName, type CollectionQueueTransport, type CollectionJobData } from '../src/adapters/investigation-jobs.js';
+import { createInvestigationJobAdapter, collectionJobName, queueConnection, type CollectionQueueTransport, type CollectionJobData } from '../src/adapters/investigation-jobs.js';
 import type { QueueState } from '../src/modules/investigations/types.js';
+
+test('queue connection preserves Redis URL routing, credentials, database and TLS', () => {
+  const connection = queueConnection('rediss://queue-user:p%40ss%3Aword@redis.example.test:6380/2');
+  assert.equal(connection.host, 'redis.example.test');
+  assert.equal(connection.port, 6380);
+  assert.equal(connection.username, 'queue-user');
+  assert.equal(connection.password, 'p@ss:word');
+  assert.equal(connection.db, 2);
+  assert.deepEqual(connection.tls, { servername: 'redis.example.test' });
+  assert.equal(connection.maxRetriesPerRequest, 1);
+  const worker = queueConnection('redis://[::1]:6381', true);
+  assert.equal(worker.host, '::1');
+  assert.equal(worker.db, 0);
+  assert.equal(worker.maxRetriesPerRequest, null);
+  assert.equal(worker.tls, undefined);
+  for (const value of ['http://localhost:6379', 'redis://localhost/not-a-db', 'redis://localhost/1?db=2']) {
+    assert.throws(() => queueConnection(value));
+  }
+});
 
 test('queue adapter deduplicates delivery and restarts only new request revisions', async () => {
   const id = randomUUID();

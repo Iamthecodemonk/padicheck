@@ -11,6 +11,7 @@ if (!process.env.DATABASE_URL) throw new Error('DATABASE_URL is required');
 const expected = new PGlite();
 const pool = new pg.Pool({ connectionString: process.env.DATABASE_URL, connectionTimeoutMillis: 5000 });
 const sql = await readFile(new URL('../db/migrations/001_baseline.sql', import.meta.url), 'utf8');
+import { billingTables } from '../src/modules/billing/service.js';
 const inspections = [
   `SELECT table_name, column_name, data_type, udt_name, is_nullable, column_default
    FROM information_schema.columns WHERE table_schema = 'public'
@@ -33,6 +34,8 @@ try {
   await expected.exec(sql);
   client = await pool.connect();
   await client.query('BEGIN READ ONLY');
+  const billing=await client.query("SELECT tablename FROM pg_tables WHERE schemaname='public' AND tablename=ANY($1::text[])",[billingTables]);
+  if(billing.rowCount||process.argv.includes('--billing'))await expected.exec(await readFile(new URL('../db/migrations/003_billing.sql',import.meta.url),'utf8'));
   for (const [index, inspection] of inspections.entries()) {
     const supplied = await expected.query<Record<string, unknown>>(inspection);
     const actual = await client.query(inspection);
@@ -62,7 +65,7 @@ try {
   } else {
     await mkdir(new URL('../docs/', import.meta.url), { recursive: true });
     await writeFile(new URL('../docs/database-drift.json', import.meta.url), '{}\n');
-    logger.info('Existing database matches baseline columns, constraints, indexes, and triggers. No database writes performed.');
+    logger.info({billing_schema:Boolean(billing.rowCount)},'Existing database matches the supplied baseline and any approved installed billing extension. No database writes performed.');
   }
 } finally {
   if (client) { await client.query('ROLLBACK'); client.release(); }

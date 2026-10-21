@@ -3,7 +3,7 @@ import pino, { type DestinationStream, type LevelWithSilent } from 'pino';
 const levels = new Set(['fatal', 'error', 'warn', 'info', 'debug', 'trace', 'silent']);
 const secrets = ['password', 'password_hash', 'code', 'otp', 'code_digest', 'token', 'token_hash', 'access_token', 'refresh_token',
   'id_token', 'nonce', 'secret', 'apiKey', 'api_key', 'apiSecret', 'api_secret', 'jwtSecret', 'databaseUrl', 'redisUrl',
-  'connectionString', 'authorization', 'Authorization', 'cookie', 'Cookie', 'credential_secret_ref'];
+  'connectionString', 'authorization', 'Authorization', 'cookie', 'Cookie', 'credential_secret_ref', 'webhookSecret', 'webhook_secret', 'BACHS_API_KEY', 'BACHS_WEBHOOK_SECRET'];
 
 export function createLogger(component: string, level: string = process.env.LOG_LEVEL ?? 'info', destination?: DestinationStream) {
   return pino({
