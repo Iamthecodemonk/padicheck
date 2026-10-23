@@ -5,6 +5,8 @@ import { UnrecoverableError } from 'bullmq';
 import { otpEmail } from '../src/modules/auth/otp-email.js';
 import { sealOtpEmail, openOtpEmail, processOtpEmail } from '../src/adapters/otp-email-jobs.js';
 import type { OtpMailer } from '../src/modules/auth/identity-types.js';
+import { pruneStaleOtpEmails } from '../src/adapters/otp-email-maintenance.js';
+import { otpEmailJob } from '../src/adapters/otp-email-jobs.js';
 
 const secret = 'test-only-otp-encryption-secret-long-enough';
 const now = 1700000000000;
@@ -64,4 +66,44 @@ test('worker does not send when challenge validation fails or Redis is unavailab
   const mailer: OtpMailer = { async sendCode() { assert.fail('Must not send'); }, async verify() {}, close() {} };
   await assert.rejects(processOtpEmail(sealOtpEmail(delivery, secret), secret,
     async () => { throw new Error('Redis unavailable'); }, mailer, () => now), /Redis unavailable/);
+});
+
+test('cleanup previews stale jobs, preserves valid and active mail, and only removes stale jobs on apply', async () => {
+  const removed: string[] = [];
+  const job = (id: string, ttl: number, state = 'waiting') => ({
+    name: otpEmailJob, data: sealOtpEmail({ ...delivery, key: id.repeat(64) }, secret),
+    async getState() { return state; }, async remove() { removed.push(id); }, ttl,
+  });
+  const jobs = [job('a', 600000), job('b', 0), job('c', 20000, 'delayed'), job('d', 0, 'active')];
+  const queue = { async getJobs(states: string[]) { assert.deepEqual(states, ['waiting', 'delayed', 'failed']); return jobs; } };
+  const ttl = async (key: string) => jobs.find(job => openOtpEmail(job.data, secret).key === key)!.ttl;
+  const preview = await pruneStaleOtpEmails(queue, secret, ttl, { clock: () => now });
+  assert.equal(preview.stale, 2); assert.equal(preview.kept_valid, 1); assert.equal(preview.skipped_state, 1);
+  assert.equal(preview.removed, 0); assert.deepEqual(removed, []);
+  const applied = await pruneStaleOtpEmails(queue, secret, ttl, { apply: true, clock: () => now });
+  assert.equal(applied.removed, 2); assert.deepEqual(removed, ['b', 'c']);
+});
+
+test('cleanup fails closed on unreadable jobs, Redis errors, and a worker taking a stale job', async () => {
+  let removes = 0;
+  const job = { name: otpEmailJob, data: sealOtpEmail(delivery, secret), async getState() { return 'waiting'; },
+    async remove() { removes++; throw new Error('Job is now locked'); } };
+  const queue = { async getJobs() { return [job]; } };
+  const unreadable = await pruneStaleOtpEmails(queue, 'wrong-secret', async () => 0, { apply: true, clock: () => now });
+  assert.equal(unreadable.unreadable, 1); assert.equal(removes, 0);
+  await assert.rejects(pruneStaleOtpEmails(queue, secret, async () => { throw new Error('Redis unavailable'); },
+    { apply: true, clock: () => now }), /Redis unavailable/);
+  assert.equal(removes, 0);
+  const raced = await pruneStaleOtpEmails(queue, secret, async () => 0, { apply: true, clock: () => now });
+  assert.equal(raced.remove_conflicts, 1); assert.equal(raced.removed, 0);
+});
+
+test('cleanup bounds scans and removes expired jobs without needing a live challenge', async () => {
+  let removes = 0;
+  const job = { name: otpEmailJob, data: sealOtpEmail({ ...delivery, expires_at: now - 1 }, secret),
+    async getState() { return 'delayed'; }, async remove() { removes++; } };
+  const queue = { async getJobs(_states: string[], start: number, end: number) { assert.equal(start, 0); assert.equal(end, 1); return [job, job]; } };
+  const result = await pruneStaleOtpEmails(queue, secret, async () => { assert.fail('Already expired'); },
+    { apply: true, limit: 1, clock: () => now });
+  assert.equal(result.scan_limited, true); assert.equal(result.scanned, 1); assert.equal(removes, 1);
 });

@@ -26,7 +26,7 @@ export function openOtpEmail(job: OtpEmailJob, secret: string): Delivery {
     const value = JSON.parse(Buffer.concat([decipher.update(bytes.subarray(28)), decipher.final()]).toString('utf8')) as Delivery;
     if (!/^[a-f0-9]{64}$/.test(value.key) || !/^[0-9a-f-]{36}$/i.test(value.challenge_id) ||
       typeof value.email !== 'string' || value.email.length > 254 || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(value.email) ||
-      !/^\d{6}$/.test(value.code) || !Number.isSafeInteger(value.expires_at)) throw new Error();
+      !/^\d{6}$/.test(value.code) || !Number.isSafeInteger(value.expires_at) || value.purpose !== undefined && value.purpose !== 'password_reset') throw new Error();
     return value;
   } catch { throw new UnrecoverableError('Invalid encrypted OTP delivery'); }
 }
@@ -54,11 +54,16 @@ export function createQueuedOtpMailer(queue: Pick<Queue<OtpEmailJob>, 'add' | 'g
 export const otpDeliveryTtlLua = `local data=redis.call('HGET',KEYS[1],'data'); if not data then return 0 end
 if cjson.decode(data).challenge_id ~= ARGV[1] then return 0 end return redis.call('PTTL',KEYS[1])`;
 
+export async function isOtpEmailStale(delivery: Delivery,
+  currentTtl: (key: string, id: string) => Promise<number>, clock = Date.now) {
+  return delivery.expires_at - clock() < 30000 || await currentTtl(delivery.key, delivery.challenge_id) < 30000;
+}
+
 export async function processOtpEmail(job: OtpEmailJob, secret: string,
   currentTtl: (key: string, id: string) => Promise<number>, mailer: OtpMailer, clock = Date.now) {
   const delivery = openOtpEmail(job, secret);
-  if (delivery.expires_at - clock() < 30000 || await currentTtl(delivery.key, delivery.challenge_id) < 30000) return 'skipped';
+  if (await isOtpEmailStale(delivery, currentTtl, clock)) return 'skipped';
   // SMTP failures must propagate so BullMQ retries; never attach input to errors.
-  await mailer.sendCode(delivery.email, delivery.code);
+  await mailer.sendCode(delivery.email, delivery.code, delivery);
   return 'sent';
 }

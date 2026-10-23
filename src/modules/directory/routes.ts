@@ -25,7 +25,7 @@ export async function directoryRoutes(app: FastifyInstance, db: Database, access
     const identifiers = await db.query(`SELECT identifier_type, value FROM identifiers WHERE entity_id = $1 AND visibility = 'public'
       ORDER BY identifier_type, identifier_id`, [entry.entity_id]);
     const review = await db.query(`SELECT status, reviewed_at FROM business_verification_requests WHERE business_profile_id = $1
-      AND status IN ('approved','rejected') ORDER BY reviewed_at DESC, verification_request_id DESC LIMIT 1`, [request.params.id]);
+      AND status IN ('approved','rejected') AND reviewed_at>=COALESCE((SELECT (to_jsonb(bp)->'profile_details'->>'verification_invalidated_at')::timestamptz FROM business_profiles bp WHERE business_profile_id=$1),'-infinity'::timestamptz) ORDER BY reviewed_at DESC, verification_request_id DESC LIMIT 1`, [request.params.id]);
     return { business: entry, identifiers: identifiers.rows, verification_review: review.rows[0] ?? null,
       limitations: ['A verification review records a staff decision about submitted evidence; it does not guarantee business conduct or validate user reports.'] };
   });

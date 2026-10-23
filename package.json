@@ -29,6 +29,8 @@
     "google:test": "node --import tsx scripts/test-google-signin.ts",
     "email:test": "node --import tsx scripts/test-email-signup.ts",
     "email:smoke": "node --import tsx scripts/smoke-otp-email.ts",
+    "email:status": "node --import tsx scripts/check-email.ts",
+    "email:prune": "node --import tsx scripts/prune-email.ts",
     "media:smoke": "node --import tsx scripts/smoke-cloudinary.ts",
     "billing:smoke": "tsx scripts/smoke-billing.ts",
     "docs:export": "tsx scripts/export-api-docs.ts",

@@ -68,7 +68,11 @@ export async function runResearch(db: Database, id: string, adapters: ResearchAd
         await client.query(`UPDATE model_runs SET status = 'failed', error_code = 'worker_interrupted', completed_at = now()
           WHERE investigation_id = $1 AND status IN ('queued', 'running')`, [id]);
       });
-      for (const assignment of assignments) {
+      const attempts = assignments.map(assignment => ({ assignment, repair: false }));
+      let repairUsed = false;
+      let lastFailure = 'analysis_failed';
+      for (let attemptIndex = 0; attemptIndex < attempts.length; attemptIndex++) {
+        const { assignment, repair } = attempts[attemptIndex]!;
         const stillEnabled = (await researchAssignments(work)).some(current => current.assignment_id === assignment.assignment_id);
         if (!stillEnabled) continue;
         const run = await work.transaction(async client => {
@@ -81,7 +85,8 @@ export async function runResearch(db: Database, id: string, adapters: ResearchAd
         });
         let result: ModelResult | undefined;
         try {
-          result = await adapters.analyze(assignment, row.user_prompt, evidence);
+          result = await adapters.analyze(repair ? { ...assignment, instructions_template: assignment.instructions_template +
+            '\nYour previous response failed validation. Return only findings with a supplied source_id and an exact contiguous quotation from that source excerpt. Omit unsupported findings; findings may be empty. Explain evidence gaps in nonempty limitations. Confidence must be null or between zero and one. Do not claim certainty.' } : assignment, row.user_prompt, evidence);
           const output = validateAnalysis(result.output, evidence);
           await work.transaction(async client => {
             await researchOwner(client, id);
@@ -107,14 +112,21 @@ export async function runResearch(db: Database, id: string, adapters: ResearchAd
           return { outcome: 'completed' as const };
         } catch (error) {
           const code = errorCode(error);
+          lastFailure = code;
           await work.query(`UPDATE model_runs SET status = 'failed', error_code = $2, provider_request_id = $3,
             input_tokens = $4, output_tokens = $5, estimated_cost_usd = $6, completed_at = now()
             WHERE model_run_id = $1 AND status = 'running'`,
           [run, code, result?.requestId ?? null, tokenCount(result?.inputTokens), tokenCount(result?.outputTokens), cost(assignment, result)]);
           if (['processing_stopped', 'account_or_permission_unavailable'].includes(code)) throw error;
+          // One repair attempt per investigation execution; failed runs remain
+          // recorded, and each new call rechecks ownership and active routing.
+          if (code === 'invalid_model_output' && !repairUsed) {
+            repairUsed = true;
+            attempts.splice(attemptIndex + 1, 0, { assignment, repair: true });
+          }
         }
       }
-      throw new ResearchError('analysis_failed');
+      throw new ResearchError(lastFailure);
     } catch (error) {
       const code = errorCode(error);
       if (code === 'processing_stopped') return { outcome: 'ignored' as const };

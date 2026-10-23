@@ -52,6 +52,14 @@ Copy-Item .env.example .env
 npm.cmd run dev
 ```
 
+OTP delivery also needs `npm run email:worker:dev` in a separate terminal;
+investigation processing needs `npm run worker:dev`. Keep the workers running.
+Use `npm run email:status` to check connected email workers and pending jobs when
+emails are delayed. Starting the HTTP API alone does not send queued messages.
+Preview stale OTP cleanup with `npm run email:prune`; apply it with
+`npm run email:prune -- --apply`. Valid and active deliveries are preserved.
+See [authentication.md](docs/authentication.md#clearing-stale-queued-emails).
+
 The server defaults to `http://127.0.0.1:3000`. Check liveness:
 
 ```powershell
@@ -162,6 +170,11 @@ HTTPS. JWTs use fixed issuer/audience and HS256; permissions are read from the
 database on every protected request.
 
 ## Logging
+
+To hand the current integration to a frontend AI, start with
+[the frontend AI implementation brief](docs/frontend-ai-integration.md). It includes
+a copyable prompt for `padicheckui`, current endpoint/workflow references, demo
+replacement tasks and acceptance checks.
 
 The approved [platform extension](docs/platform-extension.md) adds sessions,
 authenticator 2FA/recovery, bookmarks, in-app notifications, business teams and

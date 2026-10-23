@@ -39,10 +39,31 @@ test('email signup and Google identity flows enforce verification and account bo
       assert.equal((await verify(credentials.email,response.json().challenge_id,fixture.delivered.get(credentials.email)!)).statusCode,400);
       assert.equal((await post('/v1/auth/login',{email:credentials.email,password:credentials.password})).statusCode,200);
     });
-    await t.test('resend cooldown and duplicate-account responses do not bypass verification',async()=>{
-      assert.equal((await signup()).statusCode,429);now+=60001;fixture.delivered.delete(credentials.email);
-      const duplicate=await signup();assert.equal(duplicate.statusCode,202,duplicate.body);assert.equal(fixture.delivered.has(credentials.email),false);
-      assert.equal(Number((await db.query('SELECT count(*) FROM users')).rows[0]!.count),1);
+    await t.test('an abandoned unverified signup does not register or reserve the email',async()=>{
+      const email='abandoned@example.com';const first=await signup(email);
+      assert.equal(first.statusCode,202,first.body);const oldCode=fixture.delivered.get(email)!;
+      now+=600001;
+      const restarted=await signup(email.toUpperCase());assert.equal(restarted.statusCode,202,restarted.body);
+      assert.equal((await db.query('SELECT 1 FROM users WHERE lower(email)=lower($1)',[email])).rowCount,0);
+      assert.equal((await db.query('SELECT 1 FROM user_auth_accounts WHERE lower(provider_email)=lower($1)',[email])).rowCount,0);
+      assert.equal((await verify(email,first.json().challenge_id,oldCode)).statusCode,400);
+      const completed=await verify(email,restarted.json().challenge_id,fixture.delivered.get(email)!);
+      assert.equal(completed.statusCode,201,completed.body);
+      assert.equal((await signup(email)).statusCode,409);
+    });
+    await t.test('duplicate accounts return a sign-in conflict without sending or storing another OTP',async()=>{
+      fixture.delivered.delete(credentials.email);
+      const original=fixture.challenges.putOtp;let writes=0;
+      fixture.challenges.putOtp=async(...args)=>{writes++;return original(...args);};
+      try{
+        for(const email of [credentials.email,credentials.email.toUpperCase()]){
+          const duplicate=await signup(email);assert.equal(duplicate.statusCode,409,duplicate.body);
+          assert.equal(duplicate.json().error.code,'account_exists');assert.match(duplicate.json().error.message,/sign in/i);
+          assert.equal(duplicate.json().challenge_id,undefined);assert.equal(duplicate.json().access_token,undefined);
+        }
+        assert.equal(writes,0);assert.equal(fixture.delivered.has(credentials.email),false);
+      }finally{fixture.challenges.putOtp=original;}
+      assert.equal(Number((await db.query('SELECT count(*) FROM users WHERE lower(email)=lower($1)',[credentials.email])).rows[0]!.count),1);
     });
     await t.test('five failed attempts invalidate a code and expired codes cannot create users',async()=>{
       const email='attempts@example.com';const pending=await signup(email);const code=fixture.delivered.get(email)!;
@@ -53,11 +74,13 @@ test('email signup and Google identity flows enforce verification and account bo
       assert.equal((await verify('expired@example.com',expired.json().challenge_id,expiredCode)).statusCode,400);
     });
     await t.test('resend replaces the previous challenge and the hourly quota is shared across requests',async()=>{
-      const email='resend@example.com';const first=await signup(email);const old=fixture.delivered.get(email)!;now+=60001;
+      const email='resend@example.com';const first=await signup(email);const old=fixture.delivered.get(email)!;
+      assert.equal((await signup(email)).statusCode,429);now+=60001;
       const second=await signup(email);assert.equal((await verify(email,first.json().challenge_id,old)).statusCode,400);
-      assert.equal((await verify(email,second.json().challenge_id,fixture.delivered.get(email)!)).statusCode,201);
-      for(let i=0;i<3;i++){now+=60001;assert.equal((await signup(email)).statusCode,202);}
+      let latest=second;
+      for(let i=0;i<3;i++){now+=60001;latest=await signup(email);assert.equal(latest.statusCode,202);}
       now+=60001;assert.equal((await signup(email)).statusCode,429);
+      assert.equal((await verify(email,latest.json().challenge_id,fixture.delivered.get(email)!)).statusCode,201);
     });
     await t.test('email delivery and database failures create no partial accounts',async()=>{
       fixture.failDelivery(true);assert.equal((await signup('delivery@example.com')).statusCode,503);fixture.failDelivery(false);

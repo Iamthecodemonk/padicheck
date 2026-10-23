@@ -67,7 +67,7 @@ test('Gemini adapter uses registry model/settings, header credentials and struct
     assert.equal((options?.headers as Record<string, string>)['x-goog-api-key'], 'test-only-provider-key');
     const body = JSON.parse(String(options?.body));
     assert.equal(body.generationConfig.maxOutputTokens, 1024);
-    assert.equal(body.generationConfig.responseFormat.text.mimeType, 'application/json');
+    assert.equal(body.generationConfig.responseFormat.text.mimeType, 'APPLICATION_JSON');
     assert.match(body.systemInstruction.parts[0].text, /Registry instructions/);
     assert.equal(body.tools, undefined);
     return Response.json({ candidates: [{ finishReason: 'STOP', content: { parts: [{ text: '{"summary":"fixture"}' }] } }],

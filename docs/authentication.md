@@ -31,11 +31,17 @@ use the newly returned challenge ID/code. Each normalized email has a limit of
 five sends/requests in a one-hour window, shared across API instances. Per-IP
 limits also apply. Email case is normalized; provider-specific aliases are not.
 
-Existing emails receive the same 202 challenge response without a new email or
-identity being created. Cooldowns/quotas apply to both existing and new addresses.
-This avoids an explicit account-existence response at the request step, although
-Request latency is not a constant-time anonymity guarantee. Wrong, exhausted,
-expired or already-consumed codes return `400 invalid_otp`.
+An unconfirmed signup does not register or reserve the email. It can restart
+signup after the cooldown, including after the previous code expires. Only
+successful OTP verification creates the account and makes later signup requests
+return `account_exists`.
+
+As of 22 October 2026, existing emails (case-insensitive) return
+`409 account_exists` with a sign-in message. No challenge is created and no email
+is queued. This intentionally makes account existence observable instead of
+showing an OTP screen where no message will arrive. Pending new-account signup
+still uses the existing cooldown, per-email quotas and per-IP limits. Wrong,
+exhausted, expired or already-consumed codes return `400 invalid_otp`.
 
 Pending Redis records contain a password **hash**, never the password, and a
 keyed HMAC of the code bound to email/purpose/challenge ID. Email keys are also
@@ -134,6 +140,48 @@ public OIDC metadata (which cannot prove a particular client ID's configuration)
 Actual signup/mailbox delivery and Google tokens still need live acceptance.
 
 ## Background OTP delivery
+
+If email delivery is slow, run `npm run email:status`. This read-only check shows
+connected email workers, paused state and queue counts without exposing message
+data. No connected worker means jobs wait even while the HTTP API reports ready.
+Start `npm run email:worker:dev` in another terminal and keep it running alongside
+the API. In production supervise `npm run email:worker:start` with automatic restart.
+The status command exits nonzero for missing SMTP configuration, no connected
+worker, a paused queue or failed Redis access. A connected worker is not an inbox
+delivery guarantee.
+
+### Clearing stale queued emails
+
+Use expiry-aware cleanup instead of clearing Redis or draining the entire queue:
+
+```powershell
+npm run email:status
+npm run email:prune
+npm run email:prune -- --apply
+```
+
+`email:prune` previews changes by default. `--apply` removes only waiting,
+delayed or failed OTP jobs whose code has expired, has less than 30 seconds left,
+or no longer matches the current Redis challenge (consumed or replaced by a
+resend). Valid jobs and active sends are preserved. This never deletes accounts,
+challenge records, resend cooldowns or rate-limit counters, and never sends email.
+Unreadable encrypted jobs are preserved and reported; check the shared secret
+before doing any further maintenance. Output includes counts only.
+
+Each invocation inspects at most 500 jobs; `scan_limited` indicates more remain
+outside that batch. The running worker automatically checks every job at send
+time and removes skipped/completed jobs; routine expiry does not require a cron
+cleanup job. Pruning is an operator recovery tool, not a substitute for a running
+worker. SMTP failures retain the existing three-attempt retry policy. Supervise
+the worker with automatic restart and monitor worker count, queue wait and
+exhausted attempts. Never use `FLUSHDB`, `FLUSHALL`, queue obliteration or an
+unfiltered drain to fix slow email: those can destroy valid work or auth state.
+
+Worker logs separate `queue_wait_ms` (time since enqueue, including retry delays)
+from `elapsed_ms` (processing including SMTP). Long queue wait suggests a stopped,
+backlogged or retrying worker. Long processing suggests SMTP/network latency;
+additional delay after a successful send is with the mail provider/inbox. Codes
+older than ten minutes are skipped; request a fresh code after restoring workers.
 
 Run `npm.cmd run email:worker:dev` alongside the API during development. After
 building, deploy a separate process with `npm.cmd run email:worker:start`.

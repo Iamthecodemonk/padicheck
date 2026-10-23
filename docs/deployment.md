@@ -1,7 +1,7 @@
 # Deployment runbook
 
-This repository deploys as two Node.js processes: the HTTP API and the BullMQ
-source/research worker. No frontend, hosting account or public deployment is
+This repository deploys as three Node.js processes: the HTTP API, the OTP email
+worker and the BullMQ source/research worker. No frontend, hosting account or public deployment is
 created by these instructions. This release was developed on Node 22.22.2.
 
 ## Release preparation
@@ -38,6 +38,10 @@ logs sanitized send duration, queue wait time, retry failures and exhausted
 attempts. Monitor this process separately: API readiness checks queue access,
 not whether an email worker is running. Without it, OTP jobs wait until their
 challenges expire. See [background delivery](authentication.md#background-otp-delivery).
+Use `npm run email:status` for a read-only worker/queue check; alert on zero
+connected workers or sustained queued/delayed jobs. Configure the service manager
+to restart exited email workers automatically. Restart all relevant processes
+after a machine reboot; starting the API alone does not consume the email queue.
 
 Start from `.env.example` without copying real secrets into source control.
 

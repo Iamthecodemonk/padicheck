@@ -1,13 +1,14 @@
 # PadiCheck frontend integration handoff
 
-Update, 21 October 2026: [platform extension](platform-extension.md) documents the
-new session registry, MFA/recovery login branch, bookmarks, in-app notifications,
-business teams/profile edits and scoped server API keys. Handle `mfa_required`
-before calling `/me` for enrolled accounts. Cloudinary private upload/download
-acceptance passed. OpenAPI now contains 115 operations; the older capability
-inventory below must be read together with this update.
+Current as of 22 October 2026, including the approved platform extension and
+explicit duplicate-email signup errors.
+Start with [the frontend AI implementation brief](frontend-ai-integration.md),
+which contains a copyable task prompt, current UI file map and acceptance checks.
+The [platform extension](platform-extension.md) details sessions, MFA/recovery,
+bookmarks, in-app notifications, business teams/profile edits and scoped API keys.
+Cloudinary private upload/download acceptance passed. OpenAPI contains 115 operations.
 
-This document describes the implemented backend as of 19 October 2026. Start
+This document describes the implemented backend. Start
 with signup and authentication, then media and investigations. The generated
 [API reference](api-reference.md) contains every registered operation, path/query
 parameters, exact request schemas and success/error response envelopes. The
@@ -19,20 +20,35 @@ Swagger are explained here.
 
 ```text
 Integrate the existing PadiCheck frontend with the implemented backend.
-Read docs/frontend-integration.md, docs/api-reference.md and docs/openapi.json
-before changing code. Preserve the frontend's existing framework and design.
+Frontend workspace: C:\Users\HP\Desktop\projects\padicheckui
+Backend reference workspace: C:\Users\HP\Desktop\projects\padicheck
+Read the backend's docs/frontend-ai-integration.md first, then
+docs/frontend-integration.md, docs/platform-extension.md, docs/api-reference.md
+and docs/openapi.json. Paths are relative to the BACKEND workspace, not the
+frontend. Preserve the frontend's existing React/Vite framework and design.
 
 Use a shared API client and configurable API base URL. Do not invent endpoints,
 payload fields, pagination totals, refresh tokens or password-reset support.
 Implement in this order:
-1. Password signup -> email OTP verification -> login -> /v1/auth/me -> logout.
-2. Google Identity Services sign-in and explicit authenticated account linking.
-3. Authenticated multipart uploads and short-lived private media delivery.
-4. Investigation creation, list pagination, polling, results, sources, findings,
+1. Extend the existing API client/auth context for the login response union:
+   normal session OR mfa_required/challenge_token. Complete /v1/auth/mfa/verify
+   before loading /me. Keep tokens/challenges in memory; no refresh endpoint.
+2. Finish password signup/email OTP, Google login/linking, sessions and logout-all.
+3. Add authenticator 2FA enrollment, disable and recovery-code regeneration.
+   Use local QR rendering; never upload provisioning secrets to Cloudinary.
+4. Reuse authenticated multipart uploads and short-lived private media delivery.
+5. Finish investigation creation, list pagination, polling, results, sources, findings,
    cancellation and retry, including service-disabled and queued/deferred states.
-5. Public directory, evidence-backed verification requests, reports and disputes.
-6. Owner-controlled completed-investigation sharing and anonymous redemption.
-7. Permission-gated staff screens for existing admin/review/AI registry APIs.
+6. Wire Saved/bookmarks, in-app notifications/preferences and completed-result shares.
+7. Integrate directory, evidence-backed verifications, reports and disputes.
+8. Replace local business team/profile state with existing owner/member APIs.
+   Business invitations are in-app; do not claim an email was sent.
+9. Replace simulated checkout/local credits with Bachs offers, owned checkout,
+   authoritative balances/subscriptions and customer portal. Honor enabled=false.
+10. Wire API-key management with user JWTs; display new secrets once. Application
+    calls still use JWTs; customer keys are for supported server-to-server APIs.
+11. Replace simulated admin sessions with normal backend login and live permissions.
+    Connect only registered admin/review/AI/billing routes.
 
 Implement loading, empty, validation, 401, 403, 404, 409, 429 and 503 states.
 Use permissions returned by /v1/auth/me, while allowing backend authorization to
@@ -48,8 +64,11 @@ Both one-time purchases and subscription-period allowances are supported.
 Do not change the database or backend contracts to make a screen appear to work.
 
 Verify real requests against Swagger and test registration, OTP resend, login,
-expired tokens, uploads, pagination and polling. Report unsupported features
-explicitly rather than simulating successful backend responses.
+MFA/recovery/session revocation, uploads, pagination/polling, bookmarks,
+notifications, team access and API-key lifecycle. Distinguish mocked-client tests
+from live browser/provider acceptance. Keep unsupported features unavailable.
+Read the detailed brief's checklist and report files changed, commands, test
+results, provider/configuration blockers and remaining unsupported UI.
 ```
 
 ## Connection and common conventions
@@ -182,8 +201,9 @@ Store the email and challenge ID in signup screen state and show a six-digit OTP
 input. This response does not create a user and contains no access token.
 202 confirms queue acceptance, not delivery. Show a check-your-inbox state while
 the separate email worker sends the code; expiry starts at the request.
-For existing accounts it intentionally returns the same generic response and
-does not send a new signup email. Do not promise account creation at this step.
+An existing email instead returns `409 account_exists` with a sign-in message.
+No OTP is queued and no challenge is returned. Keep the signup form visible,
+show the error and offer Sign in; do not navigate to the OTP page on this response.
 
 ### Complete signup
 
@@ -216,6 +236,10 @@ the verified account and returns a session:
 
 Save the token and call `/v1/auth/me` to load roles/permissions before building
 protected navigation. Do not derive staff privileges from the signup response.
+After this 201, the signup code is consumed and the account exists. If loading
+`/me` subsequently fails, handle that as session initialization failure, not
+failed OTP verification. Retry the safe `/me` GET if appropriate, or offer normal
+password sign-in. Do not resubmit verification or resend signup for that account.
 
 ### Resend and recovery
 
@@ -233,8 +257,11 @@ after the cooldown. Handle `409 account_exists` by offering password login.
 ### Later login, current account and logout
 
 `POST /v1/auth/login` with `{"email":"ada@example.com","password":"..."}`
-returns **200** with the same session shape. `401 invalid_credentials` does not
-distinguish unknown email from a wrong password.
+returns **200** with the session shape for an unenrolled account. Enrolled accounts
+instead return `{mfa_required:true,challenge_token,expires_in:300}` with no access
+token: complete public `POST /v1/auth/mfa/verify` with `{challenge_token,code}` to
+receive the session. Do not call `/me` or enter protected navigation until then.
+`401 invalid_credentials` does not distinguish unknown email from a wrong password.
 
 `GET /v1/auth/me`, JWT required, returns **200**:
 
@@ -277,7 +304,9 @@ origin registered in Google. Never expose a Google client secret or backend key.
 2. Initialize the Google Identity Services sign-in flow with that exact nonce.
 3. In its callback, send public `POST /v1/auth/google` with
    `{"id_token":"<Google callback credential>"}`.
-4. Success **200** returns the normal PadiCheck session; fetch `/me`.
+4. Success **200** returns either the normal PadiCheck session or
+   `{mfa_required:true,challenge_token,expires_in:300}` for an enrolled account.
+   Complete `/v1/auth/mfa/verify` if required, then fetch `/me` with the access token.
 
 The nonce expires in five minutes and is single-use. On a consumed/expired nonce
 start a fresh challenge and Google flow. Google ID tokens are not PadiCheck API
@@ -722,26 +751,35 @@ There are no delete registry endpoints.
 
 `GET /health` -> `{"status":"ok","service":"padicheck-backend"}` proves
 liveness only. `GET /ready` checks database/readiness and returns background_jobs,
-media_storage, research, email_signup and google_signin configuration indicators.
+media_storage, research, email_signup, google_signin, billing and
+platform_extensions indicators.
 Those flags do not prove real SMTP delivery, Google consent or Cloudinary
 connectivity. Read [deployment.md](deployment.md) for backend startup setup.
 
 | Feature | Required backend services |
 | --- | --- |
-| Signup OTP / account email verification | PostgreSQL, Redis and SMTP |
+| Signup OTP / account email verification | PostgreSQL, Redis, SMTP and a running email worker; 202 means queued |
 | Password login / JWT and RBAC | PostgreSQL and JWT secret; production requires Redis revocation |
 | Google sign-in | PostgreSQL, Redis, GOOGLE_CLIENT_ID and actual Google token flow |
 | Uploads / signed media | Cloudinary configured server-side |
 | Background collection | Redis/BullMQ and a running worker |
 | Independent search and AI | RESEARCH_ENABLED, UltraSearch, Gemini and valid registry routing |
 | Billing | Implemented, disabled by default; requires approved migration, Bachs credentials, configured offers and explicit BILLING_ENABLED=true |
+| Sessions / MFA / bookmarks / notifications / teams / API keys | Migration 004, PLATFORM_EXTENSIONS_ENABLED=true and stable private ACCOUNT_ENCRYPTION_KEY; see platform-extension.md |
 
 Currently unavailable: password reset, passwordless OTP login, refresh tokens,
-profile editing, Google unlink, user list/suspension APIs, audit-list APIs,
+personal profile editing, Google unlink, user list/suspension APIs, audit-list APIs,
 real-time streaming, generated report/PDF downloads, automated refund issuance,
 automatic failed-investigation credit refunds and direct in-app subscription
 plan changes. Subscription self-service uses the provider portal. Do not label
 intended capabilities as implemented.
+
+Available platform features: session listing/revocation/logout-all, authenticator
+2FA/recovery codes, bookmarks, in-app notifications/preferences, business teams,
+claimed-business description/category editing and scoped API-key management.
+These are documented in [platform-extension.md](platform-extension.md). API-key
+management is available; a complete customer webhook/log/usage/sandbox platform
+is not. In-app notifications and invitations do not imply SMTP or push delivery.
 
 ## Bachs payments: one-time purchases and subscriptions
 
@@ -843,8 +881,9 @@ display_name and is_enabled only. Revocation needs a nonblank note and is audite
 1. Signup shows OTP only after 202; no protected navigation until verification.
 2. Leading-zero codes work, resend replaces the challenge, cooldown/expiry/error
    states are visible, and account-existence responses are not misrepresented.
-3. Password and Google sessions load `/me`; expired/revoked tokens clear private
-   caches. Link-required Google responses route to login and explicit linking.
+3. Password and Google login both handle the MFA branch before `/me`;
+   expired/revoked tokens clear private caches. Link-required Google responses
+   route to login and explicit linking. Challenge tokens never become access tokens.
 4. Upload uses one FormData file with no manually set multipart Content-Type;
    documents open through fresh delivery URLs and unsupported/oversized files
    show the correct API error.
@@ -858,6 +897,17 @@ display_name and is_enabled only. Revocation needs a nonblank note and is audite
    uses JSON-body redemption. Private evidence never appears in anonymous UI.
 9. All request paths/bodies match the generated API reference. No unsupported
    endpoint is called; no backend credentials are exposed by frontend config.
+10. Sessions show current login/timestamps without fabricated device/location data;
+    individual revoke/logout-all clear the right state. MFA changes revoke sessions;
+    show recovery codes once before completing the signed-out flow.
+11. Saved and notifications use server data, owner-only IDs and correct limit/offset
+    pagination. Preferences change future in-app events; no fake email/push promises.
+12. Business invitations require verified matching email; editor/viewer/owner
+    permissions behave correctly and do not grant staff roles.
+13. Billing uses backend offers, local checkout UUIDs and webhook-authoritative
+    balances; no timer-created success, local credit grants or invented receipts.
+14. API keys are managed with JWTs; generated secrets are shown once and not reused
+    as browser auth. Unsupported developer routes/scores/sandbox remain unavailable.
 
 Regenerate the offline API files with `npm.cmd run docs:export` and verify they
 match registered routes with `npm.cmd run docs:check`. The export is offline and

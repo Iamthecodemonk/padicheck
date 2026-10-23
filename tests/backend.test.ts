@@ -57,9 +57,11 @@ test('supplied schema and authentication integration', async t => {
       assert.deepEqual(me.json().user.roles, ['user']);
       assert.ok(me.json().user.permissions.includes('investigations.create'));
     });
-    await t.test('case-insensitive duplicate email does not enumerate accounts or create identities', async () => {
+    await t.test('case-insensitive duplicate email returns an explicit conflict without creating identities', async () => {
       const res = await app.inject({ method: 'POST', url: '/v1/auth/register', payload: { display_name: 'Other', email: 'ada@example.com', password } });
-      assert.equal(res.statusCode, 429, res.body);
+      assert.equal(res.statusCode, 409, res.body);
+      assert.equal(res.json().error.code, 'account_exists');
+      assert.equal(res.json().challenge_id, undefined);
       assert.equal((await db.query('SELECT * FROM users')).rows.length, 1);
       assert.equal((await db.query('SELECT * FROM user_auth_accounts')).rows.length, 1);
     });

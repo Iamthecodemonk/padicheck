@@ -1,0 +1,149 @@
+/* @import url() FONT IMPORTS MUST ALWAYS BE AT THE VERY TOP OF THIS FILE, ABOVE THE TAILWIND IMPORTS — DO NOT DELETE THIS COMMENT */
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap');
+
+/* CRITICAL: THE FOLLOWING TAILWIND IMPORTS MUST NEVER BE DELETED OR REORDERED — DO NOT DELETE THIS COMMENT */
+@import 'tailwindcss/base';
+@import 'tailwindcss/components';
+@import 'tailwindcss/utilities';
+
+@media print {
+  .no-print,
+  nav[aria-label='Primary'] {
+    display: none !important;
+  }
+}
+/* END TAILWIND IMPORTS — ALL OTHER CSS MUST GO BELOW THIS LINE */
+
+:root {
+  color-scheme: light;
+  --ink: 11 26 51;
+  --ink-soft: 51 65 92;
+  --canvas: 244 246 248;
+  --surface: 255 255 255;
+  --line: 226 231 236;
+  --muted: 89 102 120;
+  --brand: 7 135 90;
+  --brand-dark: 5 107 71;
+  --brand-soft: 224 245 235;
+  --brand-bright: 11 178 111;
+  --caution: 143 74 5;
+  --caution-soft: 253 241 223;
+  --danger: 180 47 40;
+  --danger-soft: 251 233 232;
+  --sky: 2 120 184;
+  --sky-soft: 224 242 254;
+  --violet: 109 40 217;
+  --violet-soft: 237 233 254;
+  --amber: 168 77 8;
+  --amber-soft: 254 243 199;
+  --rose: 200 25 66;
+  --rose-soft: 255 228 232;
+  --teal: 13 128 118;
+  --teal-soft: 204 247 238;
+  --inverse: 11 26 51;
+  --inverse-hover: 51 65 92;
+}
+.dark {
+  color-scheme: dark;
+  --ink: 236 241 247;
+  --ink-soft: 200 210 224;
+  --canvas: 8 14 27;
+  --surface: 17 27 46;
+  --line: 38 52 78;
+  --muted: 152 166 188;
+  --brand: 6 140 88;
+  --brand-dark: 110 231 183;
+  --brand-soft: 12 52 42;
+  --brand-bright: 52 211 153;
+  --caution: 252 196 102;
+  --caution-soft: 58 40 14;
+  --danger: 252 140 132;
+  --danger-soft: 64 24 28;
+  --sky: 125 211 252;
+  --sky-soft: 12 44 70;
+  --violet: 196 181 253;
+  --violet-soft: 40 30 82;
+  --amber: 252 211 77;
+  --amber-soft: 62 42 10;
+  --rose: 253 164 175;
+  --rose-soft: 74 20 34;
+  --teal: 94 234 212;
+  --teal-soft: 10 54 50;
+  --inverse: 30 64 160;
+  --inverse-hover: 40 80 190;
+}
+/* In dark mode, "ink" is the foreground colour, so filled ink surfaces switch to a deep blue. */
+.dark .bg-ink {
+  background-color: rgb(var(--inverse));
+}
+.dark .hover\:bg-ink-soft:hover {
+  background-color: rgb(var(--inverse-hover));
+}
+.dark .border-ink {
+  border-color: rgb(var(--inverse));
+}
+.dark .bg-danger {
+  background-color: rgb(196 52 44);
+}
+.dark .hover\:bg-danger\/90:hover {
+  background-color: rgb(176 44 38);
+}
+html,
+body,
+#root {
+  min-height: 100%;
+}
+body {
+  background: rgb(var(--canvas));
+  color: rgb(var(--ink));
+  transition: background-color 200ms ease-out, color 200ms ease-out;
+  font-family: Inter, system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif;
+  -webkit-font-smoothing: antialiased;
+  -webkit-tap-highlight-color: transparent;
+  overscroll-behavior-y: none;
+  text-size-adjust: 100%;
+}
+button,
+a,
+[role='button'] {
+  touch-action: manipulation;
+}
+.pt-safe {
+  padding-top: env(safe-area-inset-top);
+}
+.pb-safe {
+  padding-bottom: env(safe-area-inset-bottom);
+}
+.pl-safe {
+  padding-left: env(safe-area-inset-left);
+}
+.pr-safe {
+  padding-right: env(safe-area-inset-right);
+}
+.no-scrollbar {
+  scrollbar-width: none;
+}
+.no-scrollbar::-webkit-scrollbar {
+  display: none;
+}
+:focus-visible {
+  outline: 2px solid rgb(var(--brand-bright));
+  outline-offset: 2px;
+}
+/* Data Saver: drop non-essential motion entirely */
+.data-saver *,
+.data-saver *::before,
+.data-saver *::after {
+  animation-duration: 0.01ms !important;
+  animation-iteration-count: 1 !important;
+  transition-duration: 0.01ms !important;
+}
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+  }
+}

@@ -22,7 +22,7 @@ export function validateAnalysis(value: unknown, sources: Evidence[]): AnalysisD
   if (!value || typeof value !== 'object') return bad();
   const result = value as AnalysisDraft;
   if (!text(result.summary, 3000) || !Array.isArray(result.limitations) || !result.limitations.length || result.limitations.length > 10 ||
-      result.limitations.some(limit => !text(limit, 500)) || !Array.isArray(result.findings) || !result.findings.length || result.findings.length > 20) return bad();
+      result.limitations.some(limit => !text(limit, 500)) || !Array.isArray(result.findings) || result.findings.length > 20) return bad();
   for (const finding of result.findings) {
     if (!finding || !['claim', 'positive_signal', 'risk_signal', 'missing_information', 'recommendation'].includes(finding.finding_type) ||
         !text(finding.category, 100) || !text(finding.title, 200) || !text(finding.explanation, 3000) ||

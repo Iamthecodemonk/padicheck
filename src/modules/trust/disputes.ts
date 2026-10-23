@@ -2,7 +2,7 @@ import type { FastifyInstance } from 'fastify';
 import type { Database } from '../../database/index.js';
 import type { Authorization } from '../authorization/index.js';
 import { ApiError } from '../../errors.js';
-import { audit, body, disputeTransitions, noBusinessConflict, noSelfReview, pagination, params, text, transition, type Page } from './shared.js';
+import { audit, body, disputeTransitions, noBusinessConflict, noSelfReview, pagination, params, text, transition, uuid, type Page } from './shared.js';
 
 export async function disputeRoutes(app: FastifyInstance, db: Database, access: Authorization) {
   app.post<{ Params: { id: string }; Body: { reason: string } }>('/v1/reports/:id/disputes', {
@@ -25,9 +25,11 @@ export async function disputeRoutes(app: FastifyInstance, db: Database, access: 
     return reply.code(201).send({ dispute: row });
   });
 
-  app.get<{ Querystring: Page }>('/v1/disputes', { onRequest: access.authenticate, schema: { querystring: pagination } }, async request => ({
-    disputes: (await db.query(`SELECT * FROM report_disputes WHERE filed_by_user_id = $1
-      ORDER BY created_at DESC, dispute_id DESC LIMIT $2 OFFSET $3`, [request.principal!.users_id, request.query.limit ?? 20, request.query.offset ?? 0])).rows,
+  app.get<{ Querystring: Page & {business_profile_id?:string} }>('/v1/disputes', { onRequest: access.authenticate, schema: { querystring: {...pagination,properties:{...pagination.properties,business_profile_id:uuid}} } }, async request => ({
+    disputes: (await db.query(`SELECT d.*,b.business_profile_id,e.canonical_name AS business_name FROM report_disputes d JOIN user_reports r ON r.user_report_id=d.user_report_id
+      LEFT JOIN business_profiles b ON b.entity_id=r.entity_id LEFT JOIN entities e ON e.entity_id=r.entity_id
+      WHERE d.filed_by_user_id=$1 AND ($4::uuid IS NULL OR b.business_profile_id=$4)
+      ORDER BY d.created_at DESC,d.dispute_id DESC LIMIT $2 OFFSET $3`, [request.principal!.users_id, request.query.limit ?? 20, request.query.offset ?? 0, request.query.business_profile_id ?? null])).rows,
   }));
   app.get<{ Querystring: Page }>('/v1/admin/disputes', { onRequest: access.requirePermission('disputes.resolve'), schema: { querystring: pagination } }, async request => ({
     disputes: (await db.query('SELECT * FROM report_disputes ORDER BY created_at DESC, dispute_id DESC LIMIT $1 OFFSET $2', [request.query.limit ?? 20, request.query.offset ?? 0])).rows,

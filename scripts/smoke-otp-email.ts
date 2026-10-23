@@ -8,6 +8,7 @@ import { redisAuthChallenges } from '../src/adapters/auth-challenges.js';
 import { queueConnection } from '../src/adapters/investigation-jobs.js';
 import { createQueuedOtpMailer, otpEmailJob, processOtpEmail, otpDeliveryTtlLua, type OtpEmailJob } from '../src/adapters/otp-email-jobs.js';
 import { logger } from '../src/logger.js';
+import { pruneStaleOtpEmails } from '../src/adapters/otp-email-maintenance.js';
 
 // Real Redis/BullMQ, isolated queue and synthetic records. Never sends email.
 const config = loadConfig();
@@ -59,6 +60,28 @@ try {
   }));
   assert.deepEqual(results, ['sent', 'skipped', 'skipped']);
   assert.equal(sends, 1); assert.equal(attempts, 2);
+  // Pause only this synthetic worker, leaving the real OTP queue untouched.
+  await worker.pause();
+  const pendingIds: string[] = [];
+  for (let i = 0; i < 3; i++) {
+    const key = randomBytes(32).toString('hex'); const challenge_id = randomUUID();
+    assert.equal(await challenges.putOtp(key, { challenge_id, purpose: 'signup', code_digest: 'synthetic-digest', email: 'sink@example.invalid' }), true);
+    const record = { key, challenge_id, expires_at: Date.now() + (i === 1 ? -1 : 600000) };
+    records.push(record); pendingIds.push(challenge_id);
+    await mailer.sendCode('sink@example.invalid', '012345', record);
+    if (i === 2) await challenges.discardOtp(key, challenge_id);
+  }
+  const ttl = async (key: string, id: string) => Number(await redis.eval(otpDeliveryTtlLua,
+    { keys: [`padicheck:auth:v1:{${key}}:otp`], arguments: [id] }));
+  const preview = await pruneStaleOtpEmails(queue, config.jwtSecret, ttl);
+  assert.equal(preview.stale, 2); assert.equal(preview.removed, 0); assert.equal(preview.kept_valid, 1);
+  const pruned = await pruneStaleOtpEmails(queue, config.jwtSecret, ttl, { apply: true });
+  assert.equal(pruned.removed, 2); assert.equal(pruned.kept_valid, 1);
+  assert.ok(await queue.getJob(pendingIds[0]!));
+  assert.equal(await queue.getJob(pendingIds[1]!), undefined);
+  assert.equal(await queue.getJob(pendingIds[2]!), undefined);
+  assert.equal(sends, 1);
+  logger.info({ stale_removed: pruned.removed, valid_preserved: pruned.kept_valid }, 'Isolated Redis OTP cleanup passed');
   logger.info({ passed: true, retry_attempts: attempts, sent: sends, skipped: 2 }, 'OTP queue smoke passed; no real emails sent');
 } finally {
   await worker?.close();

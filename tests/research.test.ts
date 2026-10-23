@@ -37,14 +37,14 @@ test('registry-driven research, priority fallback, evidence, and cancellation', 
       VALUES ($1,$2,$2,'{"input_usd_per_million":1,"output_usd_per_million":2}'::jsonb) RETURNING model_id`, [provider, model])).rows[0]!.model_id;
     await db.query('INSERT INTO ai_task_assignments (task_id, agent_id, model_id, priority) VALUES ($1,$2,$3,$4)', [task, agent, created, index + 1]);
   }
-  let mode: 'ok' | 'fallback' | 'invalid' | 'cancel' | 'disable' = 'ok';
+  let mode: 'ok' | 'fallback' | 'invalid' | 'repair' | 'insufficient' | 'cancel' | 'disable' = 'ok';
   let currentId = '';
   let modelCalls: string[] = [];
   let searchCalls = 0;
   const sourceText = 'The page lists a business contact address. This is a self-published statement, not independent verification.';
   const output = (evidence: Evidence[]) => ({ summary: 'The page lists contact information that needs independent confirmation.', limitations: ['Only the retrieved excerpts were considered.'],
     findings: [{ finding_type: 'claim', category: 'contact', title: 'Contact details are listed', explanation: 'A source lists contact details; identity and legitimacy remain unverified.', confidence: 0.6,
-      evidence: [{ source_id: mode === 'invalid' ? randomUUID() : evidence[0]!.source_id, quote: evidence[0]!.excerpt.slice(0, 32), support_type: 'supports' }] }] });
+      evidence: [{ source_id: mode === 'invalid' || (mode === 'repair' && modelCalls.length === 1) ? randomUUID() : evidence[0]!.source_id, quote: evidence[0]!.excerpt.slice(0, 32), support_type: 'supports' }] }] });
   const adapters: ResearchAdapters = {
     async search() { searchCalls++; return [{ url: 'https://search.example/result', title: 'Search result', snippet: 'A partial search result.' }]; },
     async fetchPage(url) { return { url, title: 'Public page', text: sourceText, truncated: false }; },
@@ -55,7 +55,7 @@ test('registry-driven research, priority fallback, evidence, and cancellation', 
       if (mode === 'fallback' && assignment.priority === 1) throw new ResearchError('provider_request_failed');
       if (mode === 'cancel') await db.query("UPDATE investigations SET status = 'cancelled', completed_at = now() WHERE investigation_id = $1", [currentId]);
       if (mode === 'disable') await db.query("UPDATE ai_providers SET status = 'disabled' WHERE provider_id = $1", [provider]);
-      return { output: output(evidence), inputTokens: 23, outputTokens: 7, requestId: 'fixture-request-id' };
+      return { output: mode === 'insufficient' ? { summary: 'The available evidence does not establish information about the requested entity.', limitations: ['The retrieved excerpts do not support entity-specific findings.'], findings: [] } : output(evidence), inputTokens: 23, outputTokens: 7, requestId: 'fixture-request-id' };
     },
   };
   async function request() {
@@ -104,6 +104,25 @@ test('registry-driven research, priority fallback, evidence, and cancellation', 
       assert.equal((await runResearch(db, id, adapters)).outcome, 'failed');
       assert.equal((await db.query('SELECT 1 FROM findings WHERE investigation_id = $1', [id])).rows.length, 0);
       assert.ok((await db.query('SELECT error_code FROM model_runs WHERE investigation_id = $1', [id])).rows.every(run => run.error_code === 'invalid_model_output'));
+    });
+    await t.test('one invalid answer is repaired with exact evidence and both executions are retained', async () => {
+      mode = 'repair'; const id = await request();
+      assert.equal((await runResearch(db, id, adapters)).outcome, 'completed');
+      assert.deepEqual(modelCalls, ['fixture-primary', 'fixture-primary']);
+      const runs = (await db.query('SELECT status,error_code FROM model_runs WHERE investigation_id=$1', [id])).rows;
+      assert.equal(runs.length, 2);
+      assert.equal(runs.filter(run => run.status === 'failed' && run.error_code === 'invalid_model_output').length, 1);
+      assert.equal(runs.filter(run => run.status === 'succeeded').length, 1);
+      assert.equal((await db.query('SELECT 1 FROM findings WHERE investigation_id=$1', [id])).rowCount, 1);
+    });
+    await t.test('insufficient evidence completes honestly without manufacturing findings', async () => {
+      mode = 'insufficient'; const id = await request();
+      assert.equal((await runResearch(db, id, adapters)).outcome, 'completed');
+      assert.deepEqual(modelCalls, ['fixture-primary']);
+      assert.equal((await db.query('SELECT 1 FROM findings WHERE investigation_id=$1', [id])).rowCount, 0);
+      const row = (await db.query('SELECT result_summary FROM investigations WHERE investigation_id=$1', [id])).rows[0]!;
+      assert.match(row.result_summary, /does not establish/);
+      assert.match(row.result_summary, /Limitations:/);
     });
     await t.test('cancellation during provider work discards output while retaining run metadata', async () => {
       mode = 'cancel'; const id = await request();

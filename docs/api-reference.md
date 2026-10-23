@@ -4915,7 +4915,7 @@ Public second-factor completion. Send the five-minute challenge_token from passw
 
 Start password signup and send email OTP
 
-Start password signup. Queues a six-digit email code; 202 confirms queue acceptance, not inbox delivery. No account or token is created until verification. Code expires 10 minutes after the request, with five attempts, a 60-second resend cooldown and five requests per hour per email. Repeat this endpoint to resend. Existing accounts receive the same generic response. Requires Redis, SMTP configuration and a running email worker.
+Start password signup. Existing emails return 409 account_exists with a sign-in message and no OTP/challenge. For a new email, queues a six-digit code; 202 confirms queue acceptance, not inbox delivery. No account or token is created until verification. Code expires 10 minutes after the request, with five attempts, a 60-second resend cooldown and five requests per hour per email. Repeat this endpoint to resend while signup is pending. Requires Redis, SMTP configuration and a running email worker.
 
 **Security**
 

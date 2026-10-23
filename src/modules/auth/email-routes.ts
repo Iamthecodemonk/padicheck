@@ -18,15 +18,13 @@ export async function emailAuthRoutes(app:FastifyInstance,db:Database,access:Aut
   function available(){if(!auth.challenges||!auth.mailer)throw new ApiError(503,'email_auth_unavailable','Email verification is not configured');return {store:auth.challenges,mailer:auth.mailer};}
   const emailKey=(email:string)=>authKey(secret,'email',email.trim().toLowerCase());
   const codeKey=(email:string,id:string,code:string,purpose:string)=>authKey(secret,`otp:${purpose}`,`${emailKey(email)}:${id}:${code}`);
-  async function issue(pending:Omit<PendingOtp,'challenge_id'|'code_digest'>,deliver=true){
+  async function issue(pending:Omit<PendingOtp,'challenge_id'|'code_digest'>){
     const {store,mailer}=available();
     const id=randomUUID();const code=String(randomInt(0,1000000)).padStart(6,'0');
     const record={...pending,challenge_id:id,code_digest:codeKey(pending.email,id,code,pending.purpose)};
     if(!await store.putOtp(emailKey(pending.email),record))throw new ApiError(429,'otp_rate_limited','Wait before requesting another code');
-    if(deliver){
-      try{await mailer.sendCode(pending.email,code,{key:emailKey(pending.email),challenge_id:id,expires_at:Date.now()+600000});}
-      catch{await store.discardOtp(emailKey(pending.email),id);throw new ApiError(503,'email_delivery_failed','The verification email could not be queued');}
-    }
+    try{await mailer.sendCode(pending.email,code,{key:emailKey(pending.email),challenge_id:id,expires_at:Date.now()+600000});}
+    catch{await store.discardOtp(emailKey(pending.email),id);throw new ApiError(503,'email_delivery_failed','The verification email could not be queued');}
     return {challenge_id:id,expires_in:600,message:'If eligible, a verification email has been queued. Check your inbox shortly.'};
   }
   async function consume(input:Verify,purpose:PendingOtp['purpose']){
@@ -42,9 +40,10 @@ export async function emailAuthRoutes(app:FastifyInstance,db:Database,access:Aut
   },async(request,reply)=>{
     available();const email=request.body.email.trim().toLowerCase();const name=request.body.display_name.trim();
     if(!name)throw new ApiError(400,'invalid_display_name','Display name must not be blank');
-    const hash=await hashPassword(request.body.password);
     const existing=await db.query('SELECT 1 FROM users WHERE lower(email)=lower($1)',[email]);
-    return reply.code(202).send(await issue({purpose:'signup',email,display_name:name,password_hash:hash},!existing.rowCount));
+    if(existing.rowCount)throw new ApiError(409,'account_exists','An account with this email already exists. Sign in instead.');
+    const hash=await hashPassword(request.body.password);
+    return reply.code(202).send(await issue({purpose:'signup',email,display_name:name,password_hash:hash}));
   });
   app.post<{Body:Verify}>('/v1/auth/register/verify',{
     bodyLimit:1024,config:{rateLimit:{max:30,timeWindow:'1 minute'}},schema:{body:verification},

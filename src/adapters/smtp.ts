@@ -2,7 +2,7 @@ import nodemailer from 'nodemailer';
 import type { AppConfig } from '../config.js';
 import type { OtpMailer } from '../modules/auth/identity-types.js';
 import { logger as rootLogger } from '../logger.js';
-import { otpEmail } from '../modules/auth/otp-email.js';
+import { otpEmail, passwordResetEmail } from '../modules/auth/otp-email.js';
 
 const logger = rootLogger.child({ component: 'smtp' });
 
@@ -12,9 +12,9 @@ export function smtpMailer(config: NonNullable<AppConfig['smtp']>): OtpMailer {
     requireTLS:!config.secure,auth:config.user?{user:config.user,pass:config.password}:undefined,
     connectionTimeout:5000,greetingTimeout:5000,socketTimeout:10000,logger:false,debug:false});
   return {
-    async sendCode(email,code){
+    async sendCode(email,code,context){
       try {
-        const result=await transport.sendMail({from:config.from,to:email,...otpEmail(code)});
+        const result=await transport.sendMail({from:config.from,to:email,...(context?.purpose==='password_reset'?passwordResetEmail(code):otpEmail(code))});
         if(!result.accepted?.length||result.rejected?.length)throw new Error('Email was not accepted');
       } catch (error) {
         // Provider responses can contain recipients or credentials. Emit only

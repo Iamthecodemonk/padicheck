@@ -1,5 +1,5 @@
 export type PendingOtp = {
-  challenge_id: string; code_digest: string; purpose: 'signup' | 'verify_email';
+  challenge_id: string; code_digest: string; purpose: 'signup' | 'verify_email' | 'password_reset';
   email: string; display_name?: string; password_hash?: string; users_id?: string;
 };
 export interface AuthChallenges {
@@ -16,7 +16,7 @@ export interface OtpMailer {
   verify(): Promise<void>;
   close(): void | Promise<void>;
 }
-export type OtpDeliveryContext = { key: string; challenge_id: string; expires_at: number };
+export type OtpDeliveryContext = { key: string; challenge_id: string; expires_at: number; purpose?: 'password_reset' };
 export type GoogleIdentity = { sub: string; email: string; name: string; nonce: string; authoritative_email: boolean };
 export interface GoogleVerifier { verify(idToken: string): Promise<GoogleIdentity> }
 export type AuthDependencies = { challenges?: AuthChallenges; mailer?: OtpMailer; google?: GoogleVerifier; platformEnabled?: boolean };

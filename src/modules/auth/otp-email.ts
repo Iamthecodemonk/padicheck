@@ -20,3 +20,8 @@ export function otpEmail(code: string) {
 </td></tr></table></body></html>`,
   };
 }
+
+export function passwordResetEmail(code:string) {
+  const message=otpEmail(code);
+  return {subject:'Your PadiCheck password reset code',text:`Your password reset code is ${code}. It expires in 10 minutes and works once. Enter it on the PadiCheck password reset page. Never share it. If you did not request a password reset, ignore this email.`,html:message.html.replaceAll('Verify your email','Reset your password').replaceAll('EMAIL VERIFICATION','PASSWORD RESET').replace('One quick check.<br>Then you&rsquo;re in.','Reset your password.').replace('Enter this verification code on PadiCheck to confirm your email address.','Enter this code on the PadiCheck password reset page to choose a new password.')}
+}
