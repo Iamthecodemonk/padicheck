@@ -96,7 +96,11 @@ export async function investigationRoutes(app: FastifyInstance, db: Database, ac
     const documents = row.input_data.media_ids ?? [];
     const complete = !['queued', 'failed'].includes(row.status) && row.started_at !== null && urls.every(url => sources.rows.some(source => source.source_type === 'user_provided_link' && source.url === url)) &&
       documents.every(id => sources.rows.some(source => source.source_type === 'uploaded_document' && source.media_id === id));
+    const specialist = await db.query(`SELECT DISTINCT ON (s.metadata->'specialist_check'->>'kind') s.metadata->'specialist_check' AS check FROM sources s
+      JOIN investigation_sources l ON l.source_id=s.source_id WHERE l.investigation_id=$1
+      AND s.metadata->>'origin'='specialist_check' ORDER BY s.metadata->'specialist_check'->>'kind',s.created_at DESC,s.source_id LIMIT 12`, [row.investigation_id]);
     return { investigation: row, targets: targets.rows, source_collection_complete: complete, capabilities,
+      specialist_checks: specialist.rows.map(item => item.check),
       limitations: [researchEnabled ? 'AI-assisted interpretation of available evidence is not verification. Source coverage and model output may be incomplete or wrong.' :
         'Submitted references are not independently verified. Web research and AI analysis are disabled.'] };
   });

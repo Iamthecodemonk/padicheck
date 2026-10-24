@@ -4,6 +4,8 @@ import { researchAssignments, permittedTools } from './registry.js';
 import { validateAnalysis } from './output.js';
 import { hashContent } from '../../adapters/research.js';
 import { ResearchError, type ResearchAdapters, type Evidence, type Assignment, type ModelResult } from './types.js';
+import { searchLimits, searchPlan, diverseResults, selectEvidence } from './search-plan.js';
+import { collectSpecialistChecks } from './specialist-collection.js';
 
 const activeStatuses = ['collecting_sources', 'analyzing'];
 type Source = { source_id: string; source_type: string; url: string | null; media_id: string | null; excerpt: string | null;
@@ -53,12 +55,13 @@ export async function runResearch(db: Database, id: string, adapters: ResearchAd
       if (!assignments.length) throw new ResearchError('analysis_not_configured');
       const primary = assignments[0]!;
       if (row.status === 'collecting_sources') await enrichSources(work, row, primary, adapters);
-      const evidence = (await work.query<Evidence>(`SELECT s.source_id, s.source_type, s.title, s.url,
-        left(s.excerpt, 8000) AS excerpt, s.metadata->>'content_kind' AS content_kind
+      const evidence = selectEvidence((await work.query<Evidence>(`SELECT s.source_id, s.source_type, s.title, s.url,
+        left(s.excerpt, 8000) AS excerpt, s.metadata->>'content_kind' AS content_kind,
+        (s.metadata->>'search_budget_exhausted' = 'true' OR s.metadata->>'search_partial_failure' = 'true') AS collection_limited
         FROM investigation_sources link JOIN sources s ON s.source_id = link.source_id
         WHERE link.investigation_id = $1 AND s.excerpt IS NOT NULL AND length(trim(s.excerpt)) > 0
         ORDER BY CASE WHEN s.source_type = 'uploaded_document' THEN 0 ELSE 1 END,
-          link.relevance_rank NULLS LAST, s.source_id LIMIT 12`, [id])).rows;
+          link.relevance_rank NULLS LAST, s.source_id LIMIT 40`, [id])).rows);
       if (!evidence.length) throw new ResearchError('no_readable_evidence');
       await work.transaction(async client => {
         await researchOwner(client, id);
@@ -138,28 +141,56 @@ export async function runResearch(db: Database, id: string, adapters: ResearchAd
 }
 
 async function enrichSources(db: Database, row: Investigation, assignment: Assignment, adapters: ResearchAdapters) {
+  if (adapters.specialist) await collectSpecialistChecks(db, row, adapters.specialist,
+    client => client ? researchOwner(client, row.investigation_id) : db.transaction(connection => researchOwner(connection, row.investigation_id)));
   const tools = await permittedTools(db, assignment.agent_id);
+  let sourceLimit = 25;
+  let deadline = Infinity;
   if (row.investigation_type !== 'contract_review') {
     const searchTool = tools.get('ultrasearch_search');
-    const count = Number(searchTool.tool_config.max_results ?? 5);
-    if (!Number.isInteger(count) || count < 1 || count > 5) throw new ResearchError('invalid_tool_configuration');
+    const limits = searchLimits(searchTool.tool_config);
+    sourceLimit = limits.sources;
+    deadline = Date.now() + limits.seconds * 1000;
     const previous = await db.query(`SELECT 1 FROM sources s JOIN investigation_sources link ON link.source_id = s.source_id
-      WHERE link.investigation_id = $1 AND link.discovery_method = 'web_search' LIMIT 1`, [row.investigation_id]);
+      WHERE link.investigation_id = $1 AND link.discovery_method = 'web_search'
+      AND ($2::int = 1 OR (s.metadata->>'search_plan_version' = '2'
+        AND s.metadata->>'search_query_limit' = $2::text
+        AND COALESCE(s.metadata->>'search_budget_exhausted','false') != 'true'
+        AND COALESCE(s.metadata->>'search_partial_failure','false') != 'true')) LIMIT 1`, [row.investigation_id, limits.queries]);
     if (!previous.rowCount) {
-      await db.transaction(client => researchOwner(client, row.investigation_id));
-      (await permittedTools(db, assignment.agent_id)).get('ultrasearch_search');
-      const names = (row.input_data.targets ?? []).map(target => [target.canonical_name,
-        ...(target.identifiers ?? []).filter(identifier => ['domain', 'phone', 'registration_number'].includes(identifier.identifier_type)).map(identifier => identifier.value)].join(' ')).join(' ');
-      const results = await adapters.search((names || row.user_prompt).slice(0, 500), count, searchTool.credential_secret_ref);
+      const plan = searchPlan(row, limits.queries);
+      const batches: Awaited<ReturnType<ResearchAdapters['search']>>[] = [];
+      let succeeded = 0;
+      let lastSearchFailure: unknown;
+      for (const query of plan) {
+        if (Date.now() >= deadline) break;
+        await db.transaction(client => researchOwner(client, row.investigation_id));
+        const current = (await permittedTools(db, assignment.agent_id)).get('ultrasearch_search');
+        try {
+          batches.push(await adapters.search(query, limits.results, current.credential_secret_ref));
+          succeeded++;
+        } catch (error) { lastSearchFailure = error; batches.push([]); }
+      }
+      // Failed searches do not discard readable submitted pages or successful
+      // results from other queries. No source is invented for an empty result.
+      if (!succeeded && lastSearchFailure && !(row.input_data.urls?.length || row.input_data.media_ids?.length)) throw lastSearchFailure;
+      const results = diverseResults(batches, limits.sources);
+      const metadata = { origin: 'ultrasearch', content_kind: 'search_snippet', content_retrieved: false,
+        search_plan_version: '2', search_query_limit: limits.queries, search_queries_planned: plan.length,
+        search_queries_attempted: batches.length, search_queries_succeeded: succeeded,
+        search_budget_exhausted: batches.length < plan.length, search_partial_failure: succeeded < batches.length };
       await db.transaction(async client => {
         await researchOwner(client, row.investigation_id);
+        await client.query(`UPDATE sources SET metadata=metadata || $2::jsonb
+          WHERE source_id IN (SELECT source_id FROM investigation_sources WHERE investigation_id=$1)`,
+        [row.investigation_id, JSON.stringify({ search_budget_exhausted: metadata.search_budget_exhausted, search_partial_failure: metadata.search_partial_failure })]);
         for (const [index, result] of results.entries()) {
           const existing = await client.query(`SELECT 1 FROM sources s JOIN investigation_sources link ON link.source_id = s.source_id
             WHERE link.investigation_id = $1 AND s.url = $2`, [row.investigation_id, result.url]);
           if (existing.rowCount) continue;
           const source = await client.query<{ source_id: string }>(`INSERT INTO sources (source_type, url, title, excerpt, visibility, metadata)
-            VALUES ('web_page',$1,$2,$3,'private','{"origin":"ultrasearch","content_kind":"search_snippet","content_retrieved":false}'::jsonb) RETURNING source_id`,
-          [result.url, result.title || null, result.snippet || null]);
+            VALUES ('web_page',$1,$2,$3,'private',$4::jsonb) RETURNING source_id`,
+          [result.url, result.title || null, result.snippet || null, JSON.stringify({ ...metadata, search_query_index: result.query_index })]);
           await client.query(`INSERT INTO investigation_sources (investigation_id, source_id, discovery_method, relevance_rank, used_in_analysis)
             VALUES ($1,$2,'web_search',$3,false)`, [row.investigation_id, source.rows[0]!.source_id, index + 1]);
         }
@@ -167,9 +198,18 @@ async function enrichSources(db: Database, row: Investigation, assignment: Assig
     }
   }
   const sources = await db.query<Source>(`SELECT s.* FROM investigation_sources link JOIN sources s ON s.source_id = link.source_id
-    WHERE link.investigation_id = $1 ORDER BY CASE WHEN s.source_type = 'uploaded_document' THEN 0 ELSE 1 END, link.relevance_rank NULLS LAST, s.source_id LIMIT 25`, [row.investigation_id]);
+    WHERE link.investigation_id = $1 ORDER BY CASE WHEN s.source_type = 'uploaded_document' THEN 0 ELSE 1 END, link.relevance_rank NULLS LAST, s.source_id LIMIT $2`, [row.investigation_id, sourceLimit]);
   for (const source of sources.rows) {
+    if (source.source_type === 'external_api') continue;
     if (source.metadata.content_retrieved === true) continue;
+    if (Date.now() >= deadline) {
+      await db.transaction(async client => {
+        await researchOwner(client, row.investigation_id);
+        await client.query(`UPDATE sources SET metadata=metadata || '{"search_budget_exhausted":true}'::jsonb
+          WHERE source_id IN (SELECT source_id FROM investigation_sources WHERE investigation_id=$1)`, [row.investigation_id]);
+      });
+      break;
+    }
     await db.transaction(client => researchOwner(client, row.investigation_id));
     try {
       let excerpt: string;

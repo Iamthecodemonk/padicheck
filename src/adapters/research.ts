@@ -6,12 +6,14 @@ import { fetchPublicPage, publicDownloader } from './public-web.js';
 import { extractPdf } from './pdf-text.js';
 import { geminiAnalyzer } from './gemini.js';
 import { ResearchError, type ResearchAdapters } from '../modules/research/types.js';
+import { specialistAdapter } from './specialist.js';
 
 export function researchAdapters(config: AppConfig): ResearchAdapters {
   const search = config.ultraSearchUrl ? ultraSearch(config.ultraSearchUrl) : undefined;
   const storage = config.cloudinary ? cloudinaryStorage(config.cloudinary) : undefined;
   const download = publicDownloader();
   return {
+    specialist: specialistAdapter(),
     async search(query, maxResults, secretRef) {
       if (!search) throw new ResearchError('search_unconfigured');
       return search(query, maxResults, secretRef);

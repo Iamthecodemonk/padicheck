@@ -15,7 +15,7 @@ export async function checkDocuments(client: SqlExecutor, ids: string[], userId:
 }
 
 export async function createInvestigation(db: Database, userId: string, body: CreateInvestigation,
-  consume?: (client:SqlExecutor,userId:string,investigationId:string)=>Promise<void>) {
+  consume?: (client:SqlExecutor,userId:string,investigationId:string,input:CreateInvestigation)=>Promise<void>) {
   const normalized = normalizeCreate(body);
   return db.transaction(async client => {
     await checkDocuments(client, normalized.input_data.media_ids, userId);
@@ -23,7 +23,7 @@ export async function createInvestigation(db: Database, userId: string, body: Cr
       (user_id, investigation_type, title, user_prompt, input_data) VALUES ($1, $2, $3, $4, $5::jsonb) RETURNING *, ${revisionSql} AS dispatch_revision`,
     [userId, normalized.investigation_type, normalized.title ?? null, normalized.user_prompt, JSON.stringify(normalized.input_data)]);
     const { dispatch_revision: revision, ...investigation } = inserted.rows[0]!;
-    if (consume) await consume(client,userId,investigation.investigation_id);
+    if (consume) await consume(client,userId,investigation.investigation_id,normalized);
     for (const [index, target] of normalized.input_data.targets.entries()) {
       const entity = await client.query(`INSERT INTO entities (entity_type, canonical_name) VALUES ($1, $2) RETURNING entity_id`, [target.entity_type, target.canonical_name]);
       const entityId = entity.rows[0]!.entity_id;

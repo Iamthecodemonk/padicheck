@@ -33,7 +33,8 @@ Full payload snapshots would need a separately proposed migration if required.
    PadiCheck does not install its crawler/browser stack. Set `ULTRASEARCH_URL` to
    the trusted operator-controlled service URL, e.g. `http://127.0.0.1:8082` for a
    service listening locally. Requests use its documented `GET /search` interface
-   with `ai_mode=none`, `content=false`, `engine=google`, and at most five results.
+   with `ai_mode=none`, `content=false`, `engine=google`, and at most five results per query.
+   The local registry now enables six focused queries and up to 25 discovered source URLs.
    Rank-zero AI Overview entries are excluded. `ULTRASEARCH_API_KEY` is optional
    bearer authentication for your reverse proxy; it is not a claim that upstream
    UltraSearch natively requires an API key.
@@ -116,7 +117,8 @@ disabled. Limits are 25 MiB, 50 pages, 15 seconds, and 16,000 text characters.
 Image-only PDFs have no OCR fallback; empty/unreadable evidence does not produce
 findings. No uploaded bytes or base64 data are written to PostgreSQL.
 
-Gemini receives at most 12 evidence excerpts, each capped at 8,000 characters,
+Gemini receives up to 20 evidence excerpts, each capped at 6,000 characters
+within a total 96,000-character excerpt budget,
 plus the user question and registered instructions. The request uses structured
 JSON output; external source text is explicitly treated as untrusted data.
 Each finding must reference one of those source IDs and contain an exact quote
@@ -200,3 +202,11 @@ integration should be exercised with the configured services before deployment.
 - [Gemini structured output and REST format](https://ai.google.dev/gemini-api/docs/generate-content/structured-output?hl=en)
 - [Node HTTPS request options](https://nodejs.org/api/https.html)
 - [Mozilla PDF.js](https://github.com/mozilla/pdf.js)
+
+## Deeper search configuration (24 October 2026)
+
+The search tool now accepts max_queries (1-8), max_sources (5-30), and max_seconds (30-180), alongside max_results (1-5 per query). The local registry is configured to 6 queries, 5 results per query, 25 discovered URLs and a 180-second collection budget. Omitting max_queries retains one-query compatibility. New operator setup uses the deeper configuration.
+
+Plans cover identity, exact name, official/contact/registration information, reviews/complaints, news/public records and ownership. Tracking duplicates are removed, queries are interleaved and host diversity is preferred. Successfully retrieved pages take precedence over search snippets in analysis. An in-flight bounded request may finish after the collection budget; no new query/fetch starts after it. Partial query failures preserve other sources and are disclosed to the model as limited collection.
+
+Contracts bypass web search. Every query and page fetch still checks account ownership and permitted tools, and result publication still validates active routing and exact source quotations. Deeper search increases coverage rather than certifying identity or truth.

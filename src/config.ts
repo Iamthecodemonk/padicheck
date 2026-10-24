@@ -1,6 +1,8 @@
 import { isIP } from 'node:net';
+import { specialistConfig } from './adapters/specialist-config.js';
 
 export function loadConfig(env: NodeJS.ProcessEnv = process.env) {
+  const specialist = specialistConfig(env);
   const nodeEnv = env.NODE_ENV ?? 'development';
   if (!['development', 'test', 'production'].includes(nodeEnv)) {
     throw new Error('NODE_ENV must be development, test, or production');
@@ -108,6 +110,8 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env) {
   }
   if (env.BILLING_ENABLED && !['true','false'].includes(env.BILLING_ENABLED)) throw new Error('BILLING_ENABLED must be true or false');
   const billingEnabled = env.BILLING_ENABLED === 'true';
+  if(env.CREDITS_ENABLED && !['true','false'].includes(env.CREDITS_ENABLED))throw new Error('CREDITS_ENABLED must be true or false');
+  const creditsEnabled=env.CREDITS_ENABLED==='true';
   const bachsEnvironment = env.BACHS_ENVIRONMENT || 'sandbox';
   if (!['sandbox','production'].includes(bachsEnvironment)) throw new Error('BACHS_ENVIRONMENT must be sandbox or production');
   const bachsValues = [env.BACHS_API_KEY,env.BACHS_WEBHOOK_SECRET,env.BACHS_ORGANIZATION_ID,env.BACHS_SUCCESS_URL,env.BACHS_CANCEL_URL];
@@ -125,7 +129,7 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env) {
   }
   return { nodeEnv, port, host, logLevel, databaseUrl, jwtSecret, redisUrl, cloudinary, uploadMaxBytes, workerConcurrency, reconcileIntervalMs,
     researchEnabled, ultraSearchUrl, geminiConfigured, startupTimeoutMs, shutdownTimeoutMs, requestTimeoutMs, trustProxy, smtp, googleClientId,
-    billingEnabled, bachsEnvironment: bachsEnvironment as 'sandbox'|'production', bachs, platformEnabled, accountEncryptionKey };
+    creditsEnabled, billingEnabled, bachsEnvironment: bachsEnvironment as 'sandbox'|'production', bachs, platformEnabled, accountEncryptionKey, specialist };
 }
 
 export type AppConfig = ReturnType<typeof loadConfig>;

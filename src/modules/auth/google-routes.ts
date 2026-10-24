@@ -52,6 +52,7 @@ export async function googleAuthRoutes(app:FastifyInstance,db:Database,access:Au
             user=(await client.query<AuthUser>(`INSERT INTO users (display_name,email,email_verified_at) VALUES ($1,$2,now())
               RETURNING users_id,display_name,email,account_status,email_verified_at`,[identity.name,identity.email])).rows[0]!;
             await client.query(`INSERT INTO user_auth_accounts (users_id,provider,provider_subject,provider_email) VALUES ($1,'google',$2,$3)`,[user.users_id,identity.sub,identity.email]);
+            if(auth.onRegistered)await auth.onRegistered(client,user.users_id);
           }
           await client.query('UPDATE users SET last_login_at=now() WHERE users_id=$1',[user.users_id]);
           await client.query("UPDATE user_auth_accounts SET last_used_at=now() WHERE provider='google' AND provider_subject=$1",[identity.sub]);

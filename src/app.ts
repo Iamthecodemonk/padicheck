@@ -5,6 +5,7 @@ import rateLimit from '@fastify/rate-limit';
 import { createDatabase, type Database } from './database/index.js';
 import { ApiError } from './errors.js';
 import { authorization } from './modules/authorization/index.js';
+import {browserSessionRoutes} from './modules/auth/browser-session.js';
 import { authRoutes } from './modules/auth/routes.js';
 import { adminRoutes } from './modules/admin/routes.js';
 import multipart from '@fastify/multipart';
@@ -26,8 +27,10 @@ import { googleIdentity } from './adapters/google-identity.js';
 import type { AuthDependencies } from './modules/auth/identity-types.js';
 import { createLogger } from './logger.js';
 import { registerDocumentation } from './documentation.js';
+import {planRoutes} from './modules/billing/plans.js';
 import { billingRoutes } from './modules/billing/routes.js';
 import { consumeUnit, billingReadiness } from './modules/billing/service.js';
+import {creditRoutes,awardWelcome,consumeCredits,creditPolicy} from './modules/billing/credits.js';
 import { bachsProvider } from './adapters/bachs.js';
 import type { BillingProvider } from './modules/billing/types.js';
 import { accountRoutes } from './modules/auth/account-routes.js';
@@ -58,6 +61,7 @@ export function buildApp(config: AppConfig, database?: Database,
   const billing=dependencies.billing??(config.bachs?bachsProvider(config.bachs):undefined);
   const identity:AuthDependencies={
     platformEnabled:config.platformEnabled,
+    onRegistered:config.creditsEnabled?(client,userId)=>awardWelcome(client,userId,config.bachsEnvironment):undefined,
     challenges:dependencies.auth?.challenges??(config.redisUrl?redisAuthChallenges(config.redisUrl):undefined),
     mailer:dependencies.auth?.mailer??(config.smtp&&config.redisUrl?queuedOtpMailer(config.redisUrl,config.jwtSecret):undefined),
     google:dependencies.auth?.google??(config.googleClientId?googleIdentity(config.googleClientId):undefined),
@@ -103,8 +107,9 @@ export function buildApp(config: AppConfig, database?: Database,
       try {
         await databaseReadiness(db);
         await researchReadiness(db,config);
-        if(config.billingEnabled)await billingReadiness(db);
-        if(config.platformEnabled)await platformReadiness(db);
+        if(config.billingEnabled||config.creditsEnabled)await billingReadiness(db);
+        if(config.creditsEnabled)await creditPolicy(db,config.bachsEnvironment);
+        if(config.platformEnabled){await platformReadiness(db);await db.query('SELECT browser_token_hash,browser_jti,browser_expires_at FROM auth_sessions LIMIT 0');}
         await revocations.ping();
         if (jobs) await jobs.ping();
         if(identity.challenges&&(identity.mailer||identity.google))await identity.challenges.ping();
@@ -112,7 +117,7 @@ export function buildApp(config: AppConfig, database?: Database,
         return { status: 'ready', background_jobs: jobs ? 'configured' : 'unconfigured',
           media_storage: storage ? 'configured' : 'unconfigured', research: config.researchEnabled ? 'enabled' : 'disabled',
           email_signup:identity.mailer&&identity.challenges?'configured':'unconfigured',google_signin:identity.google&&identity.challenges?'configured':'unconfigured',
-          billing:config.billingEnabled?'enabled':'disabled', platform_extensions:config.platformEnabled?'enabled':'disabled' };
+          credits:config.creditsEnabled?'enabled':'disabled',billing:config.billingEnabled?'enabled':'disabled', platform_extensions:config.platformEnabled?'enabled':'disabled' };
       } catch {
         return reply.code(503).send({ status: 'unavailable' });
       }
@@ -127,6 +132,7 @@ export function buildApp(config: AppConfig, database?: Database,
       await api.register(rateLimit, { global: false });
       await api.register(multipart, { limits: { files: 1, fields: 0, parts: 1, fileSize: config.uploadMaxBytes } });
       const access = authorization(api, db, revocations, config.platformEnabled);
+      await browserSessionRoutes(api,db,access,config);
       await authRoutes(api, db, access, revocations, identity, config.jwtSecret);
       await securityRoutes(api,db,access,config);
       await accountRoutes(api,db,access,identity,config.jwtSecret);
@@ -138,7 +144,10 @@ export function buildApp(config: AppConfig, database?: Database,
       await researchAdminRoutes(api, db, access);
       await mediaRoutes(api, db, access, storage, config.uploadMaxBytes);
       await billingRoutes(api,db,access,config,billing);
+      await planRoutes(api,db,access,config,billing);
+      await creditRoutes(api,db,access,config);
       await investigationRoutes(api, db, access, jobs, config.researchEnabled,
+        config.creditsEnabled?(client,userId,id,input)=>consumeCredits(client,userId,id,config.bachsEnvironment,input):
         config.billingEnabled?(client,userId,id)=>consumeUnit(client,userId,id,config.bachsEnvironment):undefined);
       await directoryRoutes(api, db, access);
       await trustRoutes(api, db, access);

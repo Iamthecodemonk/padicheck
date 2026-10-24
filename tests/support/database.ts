@@ -7,6 +7,7 @@ export async function testDatabase(platform = false) {
   const postgres = new PGlite();
   await postgres.exec(await readFile(new URL('../../db/migrations/001_baseline.sql', import.meta.url), 'utf8'));
   if(platform)await postgres.exec(await readFile(new URL('../../db/migrations/004_platform_foundation.sql', import.meta.url), 'utf8'));
+  if(platform)await postgres.exec(await readFile(new URL('../../db/migrations/007_browser_sessions.sql',import.meta.url),'utf8'));
   const executor: SqlExecutor = {
     async query<T extends QueryResultRow>(sql: string, values?: unknown[]): Promise<QueryResult<T>> {
       const result = await postgres.query<T>(sql, values);

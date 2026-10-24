@@ -11,7 +11,12 @@ const safeModelConfig = { type: 'object', additionalProperties: false, propertie
   input_usd_per_million: { type: 'number', minimum: 0, maximum: 10000 },
   output_usd_per_million: { type: 'number', minimum: 0, maximum: 10000 },
 } };
-const safeToolConfig = { type: 'object', additionalProperties: false, properties: { max_results: { type: 'integer', minimum: 1, maximum: 5 } } };
+const safeToolConfig = { type: 'object', additionalProperties: false, properties: {
+  max_results: { type: 'integer', minimum: 1, maximum: 5 },
+  max_queries: { type: 'integer', minimum: 1, maximum: 8 },
+  max_sources: { type: 'integer', minimum: 5, maximum: 30 },
+  max_seconds: { type: 'integer', minimum: 30, maximum: 180 },
+} };
 type Spec = { table: string; id: string; required: string[]; properties: Record<string, unknown>; actor?: boolean };
 // Table and column names come only from this fixed allowlist, never from input.
 const specs: Record<string, Spec> = {
@@ -40,7 +45,7 @@ const specs: Record<string, Spec> = {
       properties: { max_output_tokens: { type: 'integer', minimum: 512, maximum: 8192 } } },
   } },
 };
-const jsonConfigKeys = new Set(['max_output_tokens', 'input_usd_per_million', 'output_usd_per_million', 'max_results']);
+const jsonConfigKeys = new Set(['max_output_tokens', 'input_usd_per_million', 'output_usd_per_million', 'max_results', 'max_queries', 'max_sources', 'max_seconds']);
 function sanitize(row: Record<string, unknown>, superadmin: boolean) {
   const result = { ...row };
   if ('credential_secret_ref' in result && !superadmin) {

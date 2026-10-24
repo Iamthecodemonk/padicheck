@@ -12,7 +12,7 @@ Response schemas describe envelopes. Record properties marked `additionalPropert
 
 Standard API errors have `{ "error": { "code": "...", "message": "..." }, "request_id": "..." }`. `/ready` returning 503 instead uses `{ "status": "unavailable" }`. A 204 has no body.
 
-This snapshot contains **115 operations**. Runtime documentation: `/docs/`, `/docs/json`, `/docs/yaml`.
+This snapshot contains **137 operations**. Runtime documentation: `/docs/`, `/docs/json`, `/docs/yaml`.
 
 | Method | URL | Summary |
 | --- | --- | --- |
@@ -44,10 +44,16 @@ This snapshot contains **115 operations**. Runtime documentation: `/docs/`, `/do
 | GET | `/v1/admin/billing/offers` | Get admin billing offers |
 | POST | `/v1/admin/billing/offers` | Submit admin billing offers |
 | PATCH | `/v1/admin/billing/offers/{id}` | Update admin billing offers  id |
+| GET | `/v1/admin/billing/plans` | Get admin billing plans |
+| POST | `/v1/admin/billing/plans` | Submit admin billing plans |
+| PUT | `/v1/admin/billing/plans/{id}` | Submit admin billing plans  id |
+| POST | `/v1/admin/billing/plans/{id}/enable-checkout` | Submit admin billing plans  id enable checkout |
 | GET | `/v1/admin/businesses` | Get admin businesses |
 | POST | `/v1/admin/businesses` | Submit admin businesses |
 | PATCH | `/v1/admin/businesses/{id}` | Update admin businesses  id |
 | POST | `/v1/admin/businesses/{id}/publication` | Submit admin businesses  id publication |
+| GET | `/v1/admin/credits/policy` | Get admin credits policy |
+| PUT | `/v1/admin/credits/policy` | Submit admin credits policy |
 | GET | `/v1/admin/disputes` | Get admin disputes |
 | POST | `/v1/admin/disputes/{id}/review` | Submit admin disputes  id review |
 | GET | `/v1/admin/reports` | Get admin reports |
@@ -71,21 +77,34 @@ This snapshot contains **115 operations**. Runtime documentation: `/docs/`, `/do
 | POST | `/v1/auth/mfa/recovery-codes` | Submit auth mfa recovery codes |
 | POST | `/v1/auth/mfa/setup` | Submit auth mfa setup |
 | POST | `/v1/auth/mfa/verify` | Submit auth mfa verify |
+| POST | `/v1/auth/password/change` | Submit auth password change |
+| POST | `/v1/auth/password/reset/confirm` | Submit auth password reset confirm |
+| POST | `/v1/auth/password/reset/request` | Submit auth password reset request |
 | POST | `/v1/auth/register` | Start password signup and send email OTP |
 | POST | `/v1/auth/register/verify` | Verify signup OTP and create account |
+| POST | `/v1/auth/session` | Submit auth session |
+| DELETE | `/v1/auth/session` | Delete auth session |
 | GET | `/v1/auth/sessions` | Get auth sessions |
 | DELETE | `/v1/auth/sessions/{id}` | Delete auth sessions  id |
 | POST | `/v1/billing/checkouts` | Submit billing checkouts |
 | GET | `/v1/billing/checkouts/{id}` | Get billing checkouts  id |
+| GET | `/v1/billing/history` | Get billing history |
 | GET | `/v1/billing/me` | Get billing me |
 | GET | `/v1/billing/offers` | Get billing offers |
+| GET | `/v1/billing/plans` | Get billing plans |
 | POST | `/v1/billing/portal` | Submit billing portal |
+| POST | `/v1/businesses` | Submit businesses |
+| GET | `/v1/businesses/{id}` | Get businesses  id |
+| PATCH | `/v1/businesses/{id}/details` | Update businesses  id details |
 | POST | `/v1/businesses/{id}/invitations` | Submit businesses  id invitations |
 | DELETE | `/v1/businesses/{id}/invitations/{invitation_id}` | Delete businesses  id invitations  invitation id |
 | PATCH | `/v1/businesses/{id}/profile` | Update businesses  id profile |
+| GET | `/v1/businesses/{id}/reports` | Get businesses  id reports |
 | GET | `/v1/businesses/{id}/team` | Get businesses  id team |
 | PATCH | `/v1/businesses/{id}/team/{users_id}` | Update businesses  id team  users id |
 | DELETE | `/v1/businesses/{id}/team/{users_id}` | Delete businesses  id team  users id |
+| GET | `/v1/credits/me` | Get credits me |
+| GET | `/v1/credits/policy` | Get credits policy |
 | GET | `/v1/directory` | Get directory |
 | GET | `/v1/directory/{id}` | Get directory  id |
 | GET | `/v1/directory/{id}/reports` | Get directory  id reports |
@@ -105,6 +124,8 @@ This snapshot contains **115 operations**. Runtime documentation: `/docs/`, `/do
 | GET | `/v1/investigations/{investigation_id}/share-links` | Get investigations  investigation id share links |
 | POST | `/v1/investigations/{investigation_id}/share-links/{share_link_id}/revoke` | Submit investigations  investigation id share links  share link id revoke |
 | GET | `/v1/investigations/{investigation_id}/sources` | Get investigations  investigation id sources |
+| GET | `/v1/me/account` | Get me account |
+| PATCH | `/v1/me/account` | Update me account |
 | GET | `/v1/me/api-keys` | Get me api keys |
 | POST | `/v1/me/api-keys` | Submit me api keys |
 | DELETE | `/v1/me/api-keys/{id}` | Delete me api keys  id |
@@ -112,6 +133,7 @@ This snapshot contains **115 operations**. Runtime documentation: `/docs/`, `/do
 | GET | `/v1/me/bookmarks` | Get me bookmarks |
 | GET | `/v1/me/business-invitations` | Get me business invitations |
 | POST | `/v1/me/business-invitations/{id}/accept` | Submit me business invitations  id accept |
+| GET | `/v1/me/businesses` | Get me businesses |
 | GET | `/v1/me/notification-preferences` | Get me notification preferences |
 | PATCH | `/v1/me/notification-preferences` | Update me notification preferences |
 | GET | `/v1/me/notifications` | Get me notifications |
@@ -1992,6 +2014,21 @@ Requires ai_config.manage. Only superadmins may change credential references; va
                 "type": "integer",
                 "minimum": 1,
                 "maximum": 5
+              },
+              "max_queries": {
+                "type": "integer",
+                "minimum": 1,
+                "maximum": 8
+              },
+              "max_sources": {
+                "type": "integer",
+                "minimum": 5,
+                "maximum": 30
+              },
+              "max_seconds": {
+                "type": "integer",
+                "minimum": 30,
+                "maximum": 180
               }
             }
           },
@@ -2118,6 +2155,21 @@ Requires ai_config.manage. Only superadmins may change credential references; va
                 "type": "integer",
                 "minimum": 1,
                 "maximum": 5
+              },
+              "max_queries": {
+                "type": "integer",
+                "minimum": 1,
+                "maximum": 8
+              },
+              "max_sources": {
+                "type": "integer",
+                "minimum": 5,
+                "maximum": 30
+              },
+              "max_seconds": {
+                "type": "integer",
+                "minimum": 30,
+                "maximum": 180
               }
             }
           },
@@ -2699,6 +2751,473 @@ Requires the superadmin role. Billing offer price/product/mode/units are immutab
 
 400: Invalid request; 401: Invalid or missing credentials; 403: Permission denied; 404: Resource not found or unavailable; 409: Conflict or invalid state transition; 429: Rate limit exceeded; 500: Internal error; 503: Required service is not configured or unavailable
 
+## GET /v1/admin/billing/plans
+
+Get admin billing plans
+
+Requires the superadmin role. Billing offer price/product/mode/units are immutable: create another offer for a price change. Mutations are audited.
+
+**Security**
+
+```json
+[
+  {
+    "bearerAuth": []
+  }
+]
+```
+
+**Path and query parameters**
+
+```json
+[
+  {
+    "schema": {
+      "type": "integer",
+      "minimum": 1,
+      "maximum": 100,
+      "default": 20
+    },
+    "in": "query",
+    "name": "limit",
+    "required": false
+  },
+  {
+    "schema": {
+      "type": "integer",
+      "minimum": 0,
+      "maximum": 10000,
+      "default": 0
+    },
+    "in": "query",
+    "name": "offset",
+    "required": false
+  }
+]
+```
+
+**Request body**
+
+No request body is required.
+
+**Success responses**
+
+```json
+{
+  "200": {
+    "description": "Success",
+    "content": {
+      "application/json": {
+        "schema": {
+          "type": "object",
+          "properties": {
+            "plans": {
+              "type": "array",
+              "items": {
+                "type": "object",
+                "additionalProperties": true
+              }
+            },
+            "billing_enabled": {
+              "type": "boolean"
+            }
+          },
+          "description": "Success"
+        }
+      }
+    }
+  }
+}
+```
+
+**Documented errors**
+
+400: Invalid request; 401: Invalid or missing credentials; 403: Permission denied; 404: Resource not found or unavailable; 409: Conflict or invalid state transition; 429: Rate limit exceeded; 500: Internal error; 503: Required service is not configured or unavailable
+
+## POST /v1/admin/billing/plans
+
+Submit admin billing plans
+
+Requires the superadmin role. Billing offer price/product/mode/units are immutable: create another offer for a price change. Mutations are audited.
+
+**Security**
+
+```json
+[
+  {
+    "bearerAuth": []
+  }
+]
+```
+
+**Request body**
+
+```json
+{
+  "required": true,
+  "content": {
+    "application/json": {
+      "schema": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "plan_key": {
+            "type": "string",
+            "pattern": "^[a-z0-9_-]{1,50}$"
+          },
+          "audience": {
+            "type": "string",
+            "enum": [
+              "consumer",
+              "business"
+            ]
+          },
+          "display_name": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 100,
+            "pattern": "\\S"
+          },
+          "tagline": {
+            "type": "string",
+            "maxLength": 200
+          },
+          "currency": {
+            "type": "string",
+            "enum": [
+              "NGN"
+            ]
+          },
+          "monthly_amount": {
+            "type": "string",
+            "pattern": "^(0|[1-9][0-9]{0,11})\\.[0-9]{2}$"
+          },
+          "yearly_amount": {
+            "type": "string",
+            "pattern": "^(0|[1-9][0-9]{0,11})\\.[0-9]{2}$"
+          },
+          "monthly_credits": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 100000
+          },
+          "yearly_credits": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 1000000
+          },
+          "features": {
+            "type": "array",
+            "maxItems": 20,
+            "items": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 150,
+              "pattern": "\\S"
+            }
+          },
+          "is_popular": {
+            "type": "boolean"
+          },
+          "is_published": {
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "plan_key",
+          "audience",
+          "display_name",
+          "tagline",
+          "currency",
+          "monthly_amount",
+          "yearly_amount",
+          "monthly_credits",
+          "yearly_credits",
+          "features",
+          "is_popular",
+          "is_published"
+        ]
+      }
+    }
+  }
+}
+```
+
+**Success responses**
+
+```json
+{
+  "201": {
+    "description": "Success",
+    "content": {
+      "application/json": {
+        "schema": {
+          "type": "object",
+          "properties": {
+            "plan": {
+              "type": "object",
+              "additionalProperties": true
+            }
+          },
+          "description": "Success"
+        }
+      }
+    }
+  }
+}
+```
+
+**Documented errors**
+
+400: Invalid request; 401: Invalid or missing credentials; 403: Permission denied; 404: Resource not found or unavailable; 409: Conflict or invalid state transition; 429: Rate limit exceeded; 500: Internal error; 503: Required service is not configured or unavailable
+
+## PUT /v1/admin/billing/plans/{id}
+
+Submit admin billing plans  id
+
+Requires the superadmin role. Billing offer price/product/mode/units are immutable: create another offer for a price change. Mutations are audited.
+
+**Security**
+
+```json
+[
+  {
+    "bearerAuth": []
+  }
+]
+```
+
+**Path and query parameters**
+
+```json
+[
+  {
+    "schema": {
+      "type": "string",
+      "format": "uuid"
+    },
+    "in": "path",
+    "name": "id",
+    "required": true
+  }
+]
+```
+
+**Request body**
+
+```json
+{
+  "required": true,
+  "content": {
+    "application/json": {
+      "schema": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "plan_key": {
+            "type": "string",
+            "pattern": "^[a-z0-9_-]{1,50}$"
+          },
+          "audience": {
+            "type": "string",
+            "enum": [
+              "consumer",
+              "business"
+            ]
+          },
+          "display_name": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 100,
+            "pattern": "\\S"
+          },
+          "tagline": {
+            "type": "string",
+            "maxLength": 200
+          },
+          "currency": {
+            "type": "string",
+            "enum": [
+              "NGN"
+            ]
+          },
+          "monthly_amount": {
+            "type": "string",
+            "pattern": "^(0|[1-9][0-9]{0,11})\\.[0-9]{2}$"
+          },
+          "yearly_amount": {
+            "type": "string",
+            "pattern": "^(0|[1-9][0-9]{0,11})\\.[0-9]{2}$"
+          },
+          "monthly_credits": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 100000
+          },
+          "yearly_credits": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 1000000
+          },
+          "features": {
+            "type": "array",
+            "maxItems": 20,
+            "items": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 150,
+              "pattern": "\\S"
+            }
+          },
+          "is_popular": {
+            "type": "boolean"
+          },
+          "is_published": {
+            "type": "boolean"
+          },
+          "revision": {
+            "type": "integer",
+            "minimum": 1
+          }
+        },
+        "required": [
+          "plan_key",
+          "audience",
+          "display_name",
+          "tagline",
+          "currency",
+          "monthly_amount",
+          "yearly_amount",
+          "monthly_credits",
+          "yearly_credits",
+          "features",
+          "is_popular",
+          "is_published",
+          "revision"
+        ]
+      }
+    }
+  }
+}
+```
+
+**Success responses**
+
+```json
+{
+  "200": {
+    "description": "Success",
+    "content": {
+      "application/json": {
+        "schema": {
+          "type": "object",
+          "properties": {
+            "plan": {
+              "type": "object",
+              "additionalProperties": true
+            }
+          },
+          "description": "Success"
+        }
+      }
+    }
+  }
+}
+```
+
+**Documented errors**
+
+400: Invalid request; 401: Invalid or missing credentials; 403: Permission denied; 404: Resource not found or unavailable; 409: Conflict or invalid state transition; 429: Rate limit exceeded; 500: Internal error; 503: Required service is not configured or unavailable
+
+## POST /v1/admin/billing/plans/{id}/enable-checkout
+
+Submit admin billing plans  id enable checkout
+
+Requires the superadmin role. Billing offer price/product/mode/units are immutable: create another offer for a price change. Mutations are audited.
+
+**Security**
+
+```json
+[
+  {
+    "bearerAuth": []
+  }
+]
+```
+
+**Path and query parameters**
+
+```json
+[
+  {
+    "schema": {
+      "type": "string",
+      "format": "uuid"
+    },
+    "in": "path",
+    "name": "id",
+    "required": true
+  }
+]
+```
+
+**Request body**
+
+```json
+{
+  "required": true,
+  "content": {
+    "application/json": {
+      "schema": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "acknowledge_manual_renewal": {
+            "type": "boolean",
+            "enum": [
+              true
+            ]
+          }
+        },
+        "required": [
+          "acknowledge_manual_renewal"
+        ]
+      }
+    }
+  }
+}
+```
+
+**Success responses**
+
+```json
+{
+  "200": {
+    "description": "Success",
+    "content": {
+      "application/json": {
+        "schema": {
+          "type": "object",
+          "properties": {
+            "enabled": {
+              "type": "boolean"
+            },
+            "manual_renewal": {
+              "type": "boolean"
+            }
+          },
+          "description": "Success"
+        }
+      }
+    }
+  }
+}
+```
+
+**Documented errors**
+
+400: Invalid request; 401: Invalid or missing credentials; 403: Permission denied; 404: Resource not found or unavailable; 409: Conflict or invalid state transition; 429: Rate limit exceeded; 500: Internal error; 503: Required service is not configured or unavailable
+
 ## GET /v1/admin/businesses
 
 Get admin businesses
@@ -3079,6 +3598,218 @@ Requires directory.manage.
                 "type": "object",
                 "additionalProperties": true
               }
+            }
+          },
+          "description": "Success"
+        }
+      }
+    }
+  }
+}
+```
+
+**Documented errors**
+
+400: Invalid request; 401: Invalid or missing credentials; 403: Permission denied; 404: Resource not found or unavailable; 409: Conflict or invalid state transition; 429: Rate limit exceeded; 500: Internal error; 503: Required service is not configured or unavailable
+
+## GET /v1/admin/credits/policy
+
+Get admin credits policy
+
+Superadmin-only welcome bonus and per-type costs. PUT requires the current revision; changes are audited. Zero disables a bonus or makes a check free.
+
+**Security**
+
+```json
+[
+  {
+    "bearerAuth": []
+  }
+]
+```
+
+**Request body**
+
+No request body is required.
+
+**Success responses**
+
+```json
+{
+  "200": {
+    "description": "Success",
+    "content": {
+      "application/json": {
+        "schema": {
+          "type": "object",
+          "properties": {
+            "enabled": {
+              "type": "boolean"
+            },
+            "policy": {
+              "type": "object",
+              "additionalProperties": true,
+              "nullable": true
+            }
+          },
+          "description": "Success"
+        }
+      }
+    }
+  }
+}
+```
+
+**Documented errors**
+
+400: Invalid request; 401: Invalid or missing credentials; 403: Permission denied; 404: Resource not found or unavailable; 409: Conflict or invalid state transition; 429: Rate limit exceeded; 500: Internal error; 503: Required service is not configured or unavailable
+
+## PUT /v1/admin/credits/policy
+
+Submit admin credits policy
+
+Superadmin-only welcome bonus and per-type costs. PUT requires the current revision; changes are audited. Zero disables a bonus or makes a check free.
+
+**Security**
+
+```json
+[
+  {
+    "bearerAuth": []
+  }
+]
+```
+
+**Request body**
+
+```json
+{
+  "required": true,
+  "content": {
+    "application/json": {
+      "schema": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "welcome_credits": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 100000
+          },
+          "costs": {
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+              "company_research": {
+                "type": "integer",
+                "minimum": 0,
+                "maximum": 100000
+              },
+              "phone_lookup": {
+                "type": "integer",
+                "minimum": 0,
+                "maximum": 100000
+              },
+              "property": {
+                "type": "integer",
+                "minimum": 0,
+                "maximum": 100000
+              },
+              "job_search": {
+                "type": "integer",
+                "minimum": 0,
+                "maximum": 100000
+              },
+              "web_analysis": {
+                "type": "integer",
+                "minimum": 0,
+                "maximum": 100000
+              },
+              "contract_review": {
+                "type": "integer",
+                "minimum": 0,
+                "maximum": 100000
+              },
+              "general_research": {
+                "type": "integer",
+                "minimum": 0,
+                "maximum": 100000
+              },
+              "shopping": {
+                "type": "integer",
+                "minimum": 0,
+                "maximum": 100000
+              },
+              "freelance": {
+                "type": "integer",
+                "minimum": 0,
+                "maximum": 100000
+              },
+              "person": {
+                "type": "integer",
+                "minimum": 0,
+                "maximum": 100000
+              },
+              "social": {
+                "type": "integer",
+                "minimum": 0,
+                "maximum": 100000
+              },
+              "listing": {
+                "type": "integer",
+                "minimum": 0,
+                "maximum": 100000
+              }
+            },
+            "required": [
+              "company_research",
+              "phone_lookup",
+              "property",
+              "job_search",
+              "web_analysis",
+              "contract_review",
+              "general_research",
+              "shopping",
+              "freelance",
+              "person",
+              "social",
+              "listing"
+            ]
+          },
+          "revision": {
+            "type": "integer",
+            "minimum": 1
+          }
+        },
+        "required": [
+          "welcome_credits",
+          "costs",
+          "revision"
+        ]
+      }
+    }
+  }
+}
+```
+
+**Success responses**
+
+```json
+{
+  "200": {
+    "description": "Success",
+    "content": {
+      "application/json": {
+        "schema": {
+          "type": "object",
+          "properties": {
+            "enabled": {
+              "type": "boolean"
+            },
+            "policy": {
+              "type": "object",
+              "additionalProperties": true,
+              "nullable": true
             }
           },
           "description": "Success"
@@ -4911,6 +5642,259 @@ Public second-factor completion. Send the five-minute challenge_token from passw
 
 400: Invalid request; 404: Resource not found or unavailable; 409: Conflict or invalid state transition; 429: Rate limit exceeded; 500: Internal error; 503: Required service is not configured or unavailable
 
+## POST /v1/auth/password/change
+
+Submit auth password change
+
+Public access to published directory content.
+
+**Security**
+
+```json
+[
+  {
+    "bearerAuth": []
+  }
+]
+```
+
+**Request body**
+
+```json
+{
+  "required": true,
+  "content": {
+    "application/json": {
+      "schema": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "current_password": {
+            "type": "string",
+            "minLength": 12,
+            "maxLength": 128
+          },
+          "new_password": {
+            "type": "string",
+            "minLength": 12,
+            "maxLength": 128
+          }
+        },
+        "required": [
+          "current_password",
+          "new_password"
+        ]
+      }
+    }
+  }
+}
+```
+
+**Success responses**
+
+```json
+{
+  "200": {
+    "description": "Success",
+    "content": {
+      "application/json": {
+        "schema": {
+          "type": "object",
+          "properties": {
+            "business": {
+              "type": "object",
+              "additionalProperties": true
+            },
+            "evidence": {
+              "type": "array",
+              "items": {
+                "type": "object",
+                "additionalProperties": true
+              }
+            }
+          },
+          "description": "Success"
+        }
+      }
+    }
+  }
+}
+```
+
+**Documented errors**
+
+400: Invalid request; 401: Invalid or missing credentials; 403: Permission denied; 404: Resource not found or unavailable; 409: Conflict or invalid state transition; 429: Rate limit exceeded; 500: Internal error; 503: Required service is not configured or unavailable
+
+## POST /v1/auth/password/reset/confirm
+
+Submit auth password reset confirm
+
+Public access to published directory content.
+
+**Security**
+
+```json
+[
+  {
+    "bearerAuth": []
+  }
+]
+```
+
+**Request body**
+
+```json
+{
+  "required": true,
+  "content": {
+    "application/json": {
+      "schema": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "email": {
+            "type": "string",
+            "format": "email",
+            "maxLength": 254
+          },
+          "challenge_id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "code": {
+            "type": "string",
+            "pattern": "^[0-9]{6}$"
+          },
+          "new_password": {
+            "type": "string",
+            "minLength": 12,
+            "maxLength": 128
+          }
+        },
+        "required": [
+          "email",
+          "challenge_id",
+          "code",
+          "new_password"
+        ]
+      }
+    }
+  }
+}
+```
+
+**Success responses**
+
+```json
+{
+  "200": {
+    "description": "Success",
+    "content": {
+      "application/json": {
+        "schema": {
+          "type": "object",
+          "properties": {
+            "business": {
+              "type": "object",
+              "additionalProperties": true
+            },
+            "evidence": {
+              "type": "array",
+              "items": {
+                "type": "object",
+                "additionalProperties": true
+              }
+            }
+          },
+          "description": "Success"
+        }
+      }
+    }
+  }
+}
+```
+
+**Documented errors**
+
+400: Invalid request; 401: Invalid or missing credentials; 403: Permission denied; 404: Resource not found or unavailable; 409: Conflict or invalid state transition; 429: Rate limit exceeded; 500: Internal error; 503: Required service is not configured or unavailable
+
+## POST /v1/auth/password/reset/request
+
+Submit auth password reset request
+
+Public access to published directory content.
+
+**Security**
+
+```json
+[
+  {
+    "bearerAuth": []
+  }
+]
+```
+
+**Request body**
+
+```json
+{
+  "required": true,
+  "content": {
+    "application/json": {
+      "schema": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "email": {
+            "type": "string",
+            "format": "email",
+            "maxLength": 254
+          }
+        },
+        "required": [
+          "email"
+        ]
+      }
+    }
+  }
+}
+```
+
+**Success responses**
+
+```json
+{
+  "200": {
+    "description": "Success",
+    "content": {
+      "application/json": {
+        "schema": {
+          "type": "object",
+          "properties": {
+            "business": {
+              "type": "object",
+              "additionalProperties": true
+            },
+            "evidence": {
+              "type": "array",
+              "items": {
+                "type": "object",
+                "additionalProperties": true
+              }
+            }
+          },
+          "description": "Success"
+        }
+      }
+    }
+  }
+}
+```
+
+**Documented errors**
+
+400: Invalid request; 401: Invalid or missing credentials; 403: Permission denied; 404: Resource not found or unavailable; 409: Conflict or invalid state transition; 429: Rate limit exceeded; 500: Internal error; 503: Required service is not configured or unavailable
+
 ## POST /v1/auth/register
 
 Start password signup and send email OTP
@@ -5102,6 +6086,108 @@ Complete signup with email, challenge_id and the emailed six-digit code. Returns
         }
       }
     }
+  }
+}
+```
+
+**Documented errors**
+
+400: Invalid request; 404: Resource not found or unavailable; 409: Conflict or invalid state transition; 429: Rate limit exceeded; 500: Internal error; 503: Required service is not configured or unavailable
+
+## POST /v1/auth/session
+
+Submit auth session
+
+Public access to published directory content.
+
+**Security**
+
+```json
+[]
+```
+
+**Request body**
+
+No request body is required.
+
+**Success responses**
+
+```json
+{
+  "200": {
+    "description": "Success",
+    "content": {
+      "application/json": {
+        "schema": {
+          "type": "object",
+          "properties": {
+            "user": {
+              "type": "object",
+              "properties": {
+                "users_id": {
+                  "type": "string",
+                  "format": "uuid"
+                },
+                "display_name": {
+                  "type": "string"
+                },
+                "email": {
+                  "type": "string",
+                  "format": "email"
+                },
+                "email_verified": {
+                  "type": "boolean"
+                }
+              }
+            },
+            "access_token": {
+              "type": "string"
+            },
+            "token_type": {
+              "type": "string",
+              "enum": [
+                "Bearer"
+              ]
+            },
+            "expires_in": {
+              "type": "integer",
+              "example": 900
+            }
+          },
+          "description": "Success"
+        }
+      }
+    }
+  }
+}
+```
+
+**Documented errors**
+
+400: Invalid request; 404: Resource not found or unavailable; 409: Conflict or invalid state transition; 429: Rate limit exceeded; 500: Internal error; 503: Required service is not configured or unavailable
+
+## DELETE /v1/auth/session
+
+Delete auth session
+
+Public access to published directory content.
+
+**Security**
+
+```json
+[]
+```
+
+**Request body**
+
+No request body is required.
+
+**Success responses**
+
+```json
+{
+  "204": {
+    "description": "No content"
   }
 }
 ```
@@ -5351,11 +6437,94 @@ No request body is required.
 
 400: Invalid request; 401: Invalid or missing credentials; 403: Permission denied; 404: Resource not found or unavailable; 409: Conflict or invalid state transition; 429: Rate limit exceeded; 500: Internal error; 503: Required service is not configured or unavailable
 
+## GET /v1/billing/history
+
+Get billing history
+
+Public access to published directory content.
+
+**Security**
+
+```json
+[
+  {
+    "bearerAuth": []
+  }
+]
+```
+
+**Path and query parameters**
+
+```json
+[
+  {
+    "schema": {
+      "type": "integer",
+      "minimum": 1,
+      "maximum": 100,
+      "default": 20
+    },
+    "in": "query",
+    "name": "limit",
+    "required": false
+  },
+  {
+    "schema": {
+      "type": "integer",
+      "minimum": 0,
+      "maximum": 10000,
+      "default": 0
+    },
+    "in": "query",
+    "name": "offset",
+    "required": false
+  }
+]
+```
+
+**Request body**
+
+No request body is required.
+
+**Success responses**
+
+```json
+{
+  "200": {
+    "description": "Success",
+    "content": {
+      "application/json": {
+        "schema": {
+          "type": "object",
+          "properties": {
+            "entries": {
+              "type": "array",
+              "items": {
+                "type": "object",
+                "additionalProperties": true
+              }
+            },
+            "has_more": {
+              "type": "boolean"
+            }
+          },
+          "description": "Success"
+        }
+      }
+    }
+  }
+}
+```
+
+**Documented errors**
+
+400: Invalid request; 401: Invalid or missing credentials; 403: Permission denied; 404: Resource not found or unavailable; 409: Conflict or invalid state transition; 429: Rate limit exceeded; 500: Internal error; 503: Required service is not configured or unavailable
+
 ## GET /v1/billing/me
 
 Get billing me
 
-Owned balance and subscription state. Paid invoices grant period units; a new investigation consumes one. Returns enabled=false when billing is disabled.
+Owned balance and subscription state. Credit enforcement can operate independently of paid checkouts. Legacy billing-only mode consumes one unit per investigation.
 
 **Security**
 
@@ -5458,6 +6627,56 @@ No request body is required.
 
 400: Invalid request; 404: Resource not found or unavailable; 409: Conflict or invalid state transition; 429: Rate limit exceeded; 500: Internal error; 503: Required service is not configured or unavailable
 
+## GET /v1/billing/plans
+
+Get billing plans
+
+Public access to published directory content.
+
+**Security**
+
+```json
+[]
+```
+
+**Request body**
+
+No request body is required.
+
+**Success responses**
+
+```json
+{
+  "200": {
+    "description": "Success",
+    "content": {
+      "application/json": {
+        "schema": {
+          "type": "object",
+          "properties": {
+            "plans": {
+              "type": "array",
+              "items": {
+                "type": "object",
+                "additionalProperties": true
+              }
+            },
+            "billing_enabled": {
+              "type": "boolean"
+            }
+          },
+          "description": "Success"
+        }
+      }
+    }
+  }
+}
+```
+
+**Documented errors**
+
+400: Invalid request; 404: Resource not found or unavailable; 409: Conflict or invalid state transition; 429: Rate limit exceeded; 500: Internal error; 503: Required service is not configured or unavailable
+
 ## POST /v1/billing/portal
 
 Submit billing portal
@@ -5513,6 +6732,332 @@ Send an owned local billing_subscription_id to create a fresh provider customer-
             "url": {
               "type": "string",
               "format": "uri"
+            }
+          },
+          "description": "Success"
+        }
+      }
+    }
+  }
+}
+```
+
+**Documented errors**
+
+400: Invalid request; 401: Invalid or missing credentials; 403: Permission denied; 404: Resource not found or unavailable; 409: Conflict or invalid state transition; 429: Rate limit exceeded; 500: Internal error; 503: Required service is not configured or unavailable
+
+## POST /v1/businesses
+
+Submit businesses
+
+Public access to published directory content.
+
+**Security**
+
+```json
+[
+  {
+    "bearerAuth": []
+  }
+]
+```
+
+**Request body**
+
+```json
+{
+  "required": true,
+  "content": {
+    "application/json": {
+      "schema": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "canonical_name": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 200,
+            "pattern": "\\S"
+          },
+          "business_category": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 100,
+            "pattern": "\\S"
+          },
+          "profile_description": {
+            "type": "string",
+            "minLength": 30,
+            "maxLength": 5000,
+            "pattern": "\\S"
+          },
+          "city": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 150,
+            "pattern": "\\S"
+          },
+          "country_code": {
+            "type": "string",
+            "pattern": "^[A-Z]{2}$"
+          },
+          "phone": {
+            "type": "string",
+            "pattern": "^\\+?[0-9 ()-]{7,25}$"
+          },
+          "email": {
+            "type": "string",
+            "format": "email",
+            "maxLength": 254
+          },
+          "website": {
+            "type": "string",
+            "format": "uri",
+            "maxLength": 2048
+          },
+          "social": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 2048,
+            "pattern": "\\S"
+          },
+          "registration_number": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 100,
+            "pattern": "\\S"
+          },
+          "opening_hours": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 500,
+            "pattern": "\\S"
+          }
+        },
+        "required": [
+          "canonical_name",
+          "business_category",
+          "profile_description"
+        ]
+      }
+    }
+  }
+}
+```
+
+**Success responses**
+
+```json
+{
+  "200": {
+    "description": "Success",
+    "content": {
+      "application/json": {
+        "schema": {
+          "type": "object",
+          "properties": {
+            "business": {
+              "type": "object",
+              "additionalProperties": true
+            },
+            "evidence": {
+              "type": "array",
+              "items": {
+                "type": "object",
+                "additionalProperties": true
+              }
+            }
+          },
+          "description": "Success"
+        }
+      }
+    }
+  }
+}
+```
+
+**Documented errors**
+
+400: Invalid request; 401: Invalid or missing credentials; 403: Permission denied; 404: Resource not found or unavailable; 409: Conflict or invalid state transition; 429: Rate limit exceeded; 500: Internal error; 503: Required service is not configured or unavailable
+
+## GET /v1/businesses/{id}
+
+Get businesses  id
+
+Verified user-session authentication. Claimed owner manages invitations and membership. Owner, manager and editor can edit category/description; viewer cannot edit. Team membership grants no platform staff permissions. Ownership changes clear memberships and revoke invitations. Invitation delivery is in-app, not SMTP.
+
+**Security**
+
+```json
+[
+  {
+    "bearerAuth": []
+  }
+]
+```
+
+**Path and query parameters**
+
+```json
+[
+  {
+    "schema": {
+      "type": "string",
+      "format": "uuid"
+    },
+    "in": "path",
+    "name": "id",
+    "required": true
+  }
+]
+```
+
+**Request body**
+
+No request body is required.
+
+**Success responses**
+
+```json
+{
+  "200": {
+    "description": "Success",
+    "content": {
+      "application/json": {
+        "schema": {
+          "type": "object",
+          "properties": {
+            "updated": {
+              "type": "boolean"
+            }
+          },
+          "description": "Success"
+        }
+      }
+    }
+  }
+}
+```
+
+**Documented errors**
+
+400: Invalid request; 401: Invalid or missing credentials; 403: Permission denied; 404: Resource not found or unavailable; 409: Conflict or invalid state transition; 429: Rate limit exceeded; 500: Internal error; 503: Required service is not configured or unavailable
+
+## PATCH /v1/businesses/{id}/details
+
+Update businesses  id details
+
+Verified user-session authentication. Claimed owner manages invitations and membership. Owner, manager and editor can edit category/description; viewer cannot edit. Team membership grants no platform staff permissions. Ownership changes clear memberships and revoke invitations. Invitation delivery is in-app, not SMTP.
+
+**Security**
+
+```json
+[
+  {
+    "bearerAuth": []
+  }
+]
+```
+
+**Path and query parameters**
+
+```json
+[
+  {
+    "schema": {
+      "type": "string",
+      "format": "uuid"
+    },
+    "in": "path",
+    "name": "id",
+    "required": true
+  }
+]
+```
+
+**Request body**
+
+```json
+{
+  "required": true,
+  "content": {
+    "application/json": {
+      "schema": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "canonical_name": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 200,
+            "pattern": "\\S"
+          },
+          "business_category": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 100,
+            "pattern": "\\S"
+          },
+          "profile_description": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 5000,
+            "pattern": "\\S"
+          },
+          "city": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 150,
+            "pattern": "\\S"
+          },
+          "phone": {
+            "type": "string",
+            "maxLength": 25,
+            "pattern": "^[+0-9 ()-]*$"
+          },
+          "email": {
+            "type": "string",
+            "format": "email",
+            "maxLength": 254
+          },
+          "website": {
+            "type": "string",
+            "maxLength": 2048
+          },
+          "social": {
+            "type": "string",
+            "maxLength": 2048
+          },
+          "registration_number": {
+            "type": "string",
+            "maxLength": 100
+          },
+          "opening_hours": {
+            "type": "string",
+            "maxLength": 500
+          }
+        },
+        "required": [],
+        "minProperties": 1
+      }
+    }
+  }
+}
+```
+
+**Success responses**
+
+```json
+{
+  "200": {
+    "description": "Success",
+    "content": {
+      "application/json": {
+        "schema": {
+          "type": "object",
+          "properties": {
+            "updated": {
+              "type": "boolean"
             }
           },
           "description": "Success"
@@ -5780,6 +7325,91 @@ Verified user-session authentication. Claimed owner manages invitations and memb
 
 400: Invalid request; 401: Invalid or missing credentials; 403: Permission denied; 404: Resource not found or unavailable; 409: Conflict or invalid state transition; 429: Rate limit exceeded; 500: Internal error; 503: Required service is not configured or unavailable
 
+## GET /v1/businesses/{id}/reports
+
+Get businesses  id reports
+
+Verified user-session authentication. Claimed owner manages invitations and membership. Owner, manager and editor can edit category/description; viewer cannot edit. Team membership grants no platform staff permissions. Ownership changes clear memberships and revoke invitations. Invitation delivery is in-app, not SMTP.
+
+**Security**
+
+```json
+[
+  {
+    "bearerAuth": []
+  }
+]
+```
+
+**Path and query parameters**
+
+```json
+[
+  {
+    "schema": {
+      "type": "integer",
+      "minimum": 1,
+      "maximum": 100,
+      "default": 20
+    },
+    "in": "query",
+    "name": "limit",
+    "required": false
+  },
+  {
+    "schema": {
+      "type": "integer",
+      "minimum": 0,
+      "maximum": 10000,
+      "default": 0
+    },
+    "in": "query",
+    "name": "offset",
+    "required": false
+  },
+  {
+    "schema": {
+      "type": "string",
+      "format": "uuid"
+    },
+    "in": "path",
+    "name": "id",
+    "required": true
+  }
+]
+```
+
+**Request body**
+
+No request body is required.
+
+**Success responses**
+
+```json
+{
+  "200": {
+    "description": "Success",
+    "content": {
+      "application/json": {
+        "schema": {
+          "type": "object",
+          "properties": {
+            "updated": {
+              "type": "boolean"
+            }
+          },
+          "description": "Success"
+        }
+      }
+    }
+  }
+}
+```
+
+**Documented errors**
+
+400: Invalid request; 401: Invalid or missing credentials; 403: Permission denied; 404: Resource not found or unavailable; 409: Conflict or invalid state transition; 429: Rate limit exceeded; 500: Internal error; 503: Required service is not configured or unavailable
+
 ## GET /v1/businesses/{id}/team
 
 Get businesses  id team
@@ -6012,6 +7642,111 @@ No request body is required.
 **Documented errors**
 
 400: Invalid request; 401: Invalid or missing credentials; 403: Permission denied; 404: Resource not found or unavailable; 409: Conflict or invalid state transition; 429: Rate limit exceeded; 500: Internal error; 503: Required service is not configured or unavailable
+
+## GET /v1/credits/me
+
+Get credits me
+
+Owned credit balance and latest 100 grant/debit transactions. Includes welcome and paid credits. Never awards credits on read.
+
+**Security**
+
+```json
+[
+  {
+    "bearerAuth": []
+  }
+]
+```
+
+**Request body**
+
+No request body is required.
+
+**Success responses**
+
+```json
+{
+  "200": {
+    "description": "Success",
+    "content": {
+      "application/json": {
+        "schema": {
+          "type": "object",
+          "properties": {
+            "enabled": {
+              "type": "boolean"
+            },
+            "available_units": {
+              "type": "integer"
+            },
+            "transactions": {
+              "type": "array",
+              "items": {
+                "type": "object",
+                "additionalProperties": true
+              }
+            }
+          },
+          "description": "Success"
+        }
+      }
+    }
+  }
+}
+```
+
+**Documented errors**
+
+400: Invalid request; 401: Invalid or missing credentials; 403: Permission denied; 404: Resource not found or unavailable; 409: Conflict or invalid state transition; 429: Rate limit exceeded; 500: Internal error; 503: Required service is not configured or unavailable
+
+## GET /v1/credits/policy
+
+Get credits policy
+
+Public check costs when credit enforcement is enabled. Property has its own price. Prices are authoritative at submission.
+
+**Security**
+
+```json
+[]
+```
+
+**Request body**
+
+No request body is required.
+
+**Success responses**
+
+```json
+{
+  "200": {
+    "description": "Success",
+    "content": {
+      "application/json": {
+        "schema": {
+          "type": "object",
+          "properties": {
+            "enabled": {
+              "type": "boolean"
+            },
+            "policy": {
+              "type": "object",
+              "additionalProperties": true,
+              "nullable": true
+            }
+          },
+          "description": "Success"
+        }
+      }
+    }
+  }
+}
+```
+
+**Documented errors**
+
+400: Invalid request; 404: Resource not found or unavailable; 409: Conflict or invalid state transition; 429: Rate limit exceeded; 500: Internal error; 503: Required service is not configured or unavailable
 
 ## GET /v1/directory
 
@@ -6372,6 +8107,15 @@ Authenticated access. Lists show your own submissions; detail access also permit
     "in": "query",
     "name": "offset",
     "required": false
+  },
+  {
+    "schema": {
+      "type": "string",
+      "format": "uuid"
+    },
+    "in": "query",
+    "name": "business_profile_id",
+    "required": false
   }
 ]
 ```
@@ -6594,6 +8338,11 @@ Requires investigations.create. Cancel/retry are owner-only; only active investi
           "user_prompt"
         ],
         "properties": {
+          "expected_credit_cost": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 100000
+          },
           "investigation_type": {
             "type": "string",
             "enum": [
@@ -6619,6 +8368,59 @@ Requires investigations.create. Cancel/retry are owner-only; only active investi
             "type": "object",
             "additionalProperties": false,
             "properties": {
+              "check_context": {
+                "type": "string",
+                "enum": [
+                  "business",
+                  "phone",
+                  "property",
+                  "job",
+                  "shopping",
+                  "freelance",
+                  "person",
+                  "social",
+                  "listing"
+                ]
+              },
+              "verification": {
+                "type": "object",
+                "additionalProperties": false,
+                "properties": {
+                  "business_name": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 200
+                  },
+                  "employer_name": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 200
+                  },
+                  "registration_number": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 80
+                  },
+                  "country_code": {
+                    "type": "string",
+                    "pattern": "^[A-Z]{2}$"
+                  },
+                  "jurisdiction_code": {
+                    "type": "string",
+                    "pattern": "^[a-z]{2}(_[a-z0-9]{1,20})?$"
+                  },
+                  "address": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 500
+                  },
+                  "official_website": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 2048
+                  }
+                }
+              },
               "urls": {
                 "type": "array",
                 "maxItems": 10,
@@ -6747,6 +8549,13 @@ Requires investigations.create. Cancel/retry are owner-only; only active investi
             },
             "source_collection_complete": {
               "type": "boolean"
+            },
+            "specialist_checks": {
+              "type": "array",
+              "items": {
+                "type": "object",
+                "additionalProperties": true
+              }
             },
             "limitations": {
               "type": "array",
@@ -7049,6 +8858,13 @@ No request body is required.
             "source_collection_complete": {
               "type": "boolean"
             },
+            "specialist_checks": {
+              "type": "array",
+              "items": {
+                "type": "object",
+                "additionalProperties": true
+              }
+            },
             "limitations": {
               "type": "array",
               "items": {
@@ -7135,6 +8951,13 @@ No request body is required.
             },
             "source_collection_complete": {
               "type": "boolean"
+            },
+            "specialist_checks": {
+              "type": "array",
+              "items": {
+                "type": "object",
+                "additionalProperties": true
+              }
             },
             "limitations": {
               "type": "array",
@@ -7426,6 +9249,13 @@ No request body is required.
             },
             "source_collection_complete": {
               "type": "boolean"
+            },
+            "specialist_checks": {
+              "type": "array",
+              "items": {
+                "type": "object",
+                "additionalProperties": true
+              }
             },
             "limitations": {
               "type": "array",
@@ -7792,6 +9622,144 @@ No request body is required.
             "capabilities": {
               "type": "object",
               "additionalProperties": true
+            }
+          },
+          "description": "Success"
+        }
+      }
+    }
+  }
+}
+```
+
+**Documented errors**
+
+400: Invalid request; 401: Invalid or missing credentials; 403: Permission denied; 404: Resource not found or unavailable; 409: Conflict or invalid state transition; 429: Rate limit exceeded; 500: Internal error; 503: Required service is not configured or unavailable
+
+## GET /v1/me/account
+
+Get me account
+
+Enabled platform extension and user-session authentication required. Owner-only records; list limit defaults to 20 (maximum 100), offset defaults to zero (maximum 10000). Bookmarks additionally require investigation read permission. Notifications are in-app and contain related record IDs, not private evidence.
+
+**Security**
+
+```json
+[
+  {
+    "bearerAuth": []
+  }
+]
+```
+
+**Request body**
+
+No request body is required.
+
+**Success responses**
+
+```json
+{
+  "200": {
+    "description": "Success",
+    "content": {
+      "application/json": {
+        "schema": {
+          "type": "object",
+          "properties": {
+            "businesses": {
+              "type": "array",
+              "items": {
+                "type": "object",
+                "additionalProperties": true
+              }
+            },
+            "evidence": {
+              "type": "array",
+              "items": {
+                "type": "object",
+                "additionalProperties": true
+              }
+            }
+          },
+          "description": "Success"
+        }
+      }
+    }
+  }
+}
+```
+
+**Documented errors**
+
+400: Invalid request; 401: Invalid or missing credentials; 403: Permission denied; 404: Resource not found or unavailable; 409: Conflict or invalid state transition; 429: Rate limit exceeded; 500: Internal error; 503: Required service is not configured or unavailable
+
+## PATCH /v1/me/account
+
+Update me account
+
+Enabled platform extension and user-session authentication required. Owner-only records; list limit defaults to 20 (maximum 100), offset defaults to zero (maximum 10000). Bookmarks additionally require investigation read permission. Notifications are in-app and contain related record IDs, not private evidence.
+
+**Security**
+
+```json
+[
+  {
+    "bearerAuth": []
+  }
+]
+```
+
+**Request body**
+
+```json
+{
+  "required": true,
+  "content": {
+    "application/json": {
+      "schema": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "display_name": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 120
+          },
+          "phone_number": {
+            "type": "string",
+            "pattern": "^\\+?[0-9 ()-]{7,25}$",
+            "nullable": true
+          }
+        },
+        "required": []
+      }
+    }
+  }
+}
+```
+
+**Success responses**
+
+```json
+{
+  "200": {
+    "description": "Success",
+    "content": {
+      "application/json": {
+        "schema": {
+          "type": "object",
+          "properties": {
+            "business": {
+              "type": "object",
+              "additionalProperties": true
+            },
+            "evidence": {
+              "type": "array",
+              "items": {
+                "type": "object",
+                "additionalProperties": true
+              }
             }
           },
           "description": "Success"
@@ -8277,6 +10245,93 @@ No request body is required.
           "properties": {
             "accepted": {
               "type": "boolean"
+            }
+          },
+          "description": "Success"
+        }
+      }
+    }
+  }
+}
+```
+
+**Documented errors**
+
+400: Invalid request; 401: Invalid or missing credentials; 403: Permission denied; 404: Resource not found or unavailable; 409: Conflict or invalid state transition; 429: Rate limit exceeded; 500: Internal error; 503: Required service is not configured or unavailable
+
+## GET /v1/me/businesses
+
+Get me businesses
+
+Enabled platform extension and user-session authentication required. Owner-only records; list limit defaults to 20 (maximum 100), offset defaults to zero (maximum 10000). Bookmarks additionally require investigation read permission. Notifications are in-app and contain related record IDs, not private evidence.
+
+**Security**
+
+```json
+[
+  {
+    "bearerAuth": []
+  }
+]
+```
+
+**Path and query parameters**
+
+```json
+[
+  {
+    "schema": {
+      "type": "integer",
+      "minimum": 1,
+      "maximum": 100,
+      "default": 20
+    },
+    "in": "query",
+    "name": "limit",
+    "required": false
+  },
+  {
+    "schema": {
+      "type": "integer",
+      "minimum": 0,
+      "maximum": 10000,
+      "default": 0
+    },
+    "in": "query",
+    "name": "offset",
+    "required": false
+  }
+]
+```
+
+**Request body**
+
+No request body is required.
+
+**Success responses**
+
+```json
+{
+  "200": {
+    "description": "Success",
+    "content": {
+      "application/json": {
+        "schema": {
+          "type": "object",
+          "properties": {
+            "businesses": {
+              "type": "array",
+              "items": {
+                "type": "object",
+                "additionalProperties": true
+              }
+            },
+            "evidence": {
+              "type": "array",
+              "items": {
+                "type": "object",
+                "additionalProperties": true
+              }
             }
           },
           "description": "Success"

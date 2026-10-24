@@ -1,3 +1,4 @@
+import {billingHistory} from './history.js';
 import { createHash } from 'node:crypto';
 import type { FastifyInstance } from 'fastify';
 import type { Database } from '../../database/index.js';
@@ -16,12 +17,18 @@ export async function billingRoutes(app:FastifyInstance,db:Database,access:Autho
   app.addHook('onSend',async(request,reply,payload)=>{if(request.url.includes('/billing')||request.url.startsWith('/v1/webhooks/bachs'))reply.header('Cache-Control','no-store');return payload;});
   app.get('/v1/billing/offers',async()=>{
     if(!config.billingEnabled)return {enabled:false,offers:[]};available();
-    const rows=await db.query(`SELECT offer_key,display_name,billing_mode,currency,amount,investigation_units FROM billing_offers
+    const rows=await db.query(`SELECT offer_key,display_name,billing_mode,currency,amount,investigation_units,plan_id,validity_days FROM billing_offers
       WHERE environment=$1 AND is_enabled ORDER BY offer_key`,[environment]);
     return {enabled:true,offers:rows.rows};
   });
+  app.get<{Querystring:{limit?:number;offset?:number}}>('/v1/billing/history',{
+    onRequest:access.authenticate,schema:{querystring:pagination},
+  },async request=>{
+    try{await billingReadiness(db);}catch{throw new ApiError(503,'billing_schema_unavailable','Billing history is unavailable');}
+    return billingHistory(db,request.principal!.users_id,environment,request.query.limit??20,request.query.offset??0);
+  });
   app.get('/v1/billing/me',{onRequest:access.authenticate},async request=>{
-    if(!config.billingEnabled)return {enabled:false,available_units:0,subscriptions:[]};available();
+    if(!config.billingEnabled&&!config.creditsEnabled)return {enabled:false,available_units:0,subscriptions:[]};
     const units=await db.query(`SELECT COALESCE(sum(g.units_granted-g.units_used),0)::text AS units FROM billing_grants g
       WHERE g.users_id=$1 AND g.environment=$2 AND g.revoked_at IS NULL AND g.valid_from<=now()
       AND (g.expires_at IS NULL OR g.expires_at>now()) AND (g.billing_subscription_id IS NULL OR EXISTS

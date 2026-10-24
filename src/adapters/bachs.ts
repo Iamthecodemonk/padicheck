@@ -19,7 +19,7 @@ export function bachsProvider(config: NonNullable<AppConfig['bachs']>, transport
       return result;
     }catch{throw new ApiError(502,'billing_provider_failed','The payment provider request could not be completed');}
   }
-  return {createCheckout:(input,key)=>call('/v1/checkout-sessions','POST',input,key),
+  return {createProduct:(input,key)=>call('/v1/products','POST',input,key),product:value=>call(`/v1/products/${id(value,'prod')}`),createCheckout:(input,key)=>call('/v1/checkout-sessions','POST',input,key),
     checkout:value=>call(`/v1/checkout-sessions/${id(value,'chk')}`),subscription:value=>call(`/v1/subscriptions/${id(value,'sub')}`),
     portal:value=>call(`/v1/customers/${id(value,'cust')}/portal-sessions`,'POST')};
 }

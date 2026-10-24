@@ -19,4 +19,4 @@ export interface OtpMailer {
 export type OtpDeliveryContext = { key: string; challenge_id: string; expires_at: number; purpose?: 'password_reset' };
 export type GoogleIdentity = { sub: string; email: string; name: string; nonce: string; authoritative_email: boolean };
 export interface GoogleVerifier { verify(idToken: string): Promise<GoogleIdentity> }
-export type AuthDependencies = { challenges?: AuthChallenges; mailer?: OtpMailer; google?: GoogleVerifier; platformEnabled?: boolean };
+export type AuthDependencies = { challenges?: AuthChallenges; mailer?: OtpMailer; google?: GoogleVerifier; platformEnabled?: boolean; onRegistered?: (client:import('../../database/index.js').SqlExecutor,userId:string)=>Promise<void> };

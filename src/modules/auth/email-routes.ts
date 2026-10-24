@@ -55,6 +55,7 @@ export async function emailAuthRoutes(app:FastifyInstance,db:Database,access:Aut
           VALUES ($1,$2,now(),now()) RETURNING users_id,display_name,email,account_status,email_verified_at`,[pending.display_name,pending.email])).rows[0]!;
         await client.query(`INSERT INTO user_auth_accounts (users_id,provider,password_hash,provider_email,last_used_at)
           VALUES ($1,'password',$2,$3,now())`,[row.users_id,pending.password_hash,row.email]);
+        if(auth.onRegistered)await auth.onRegistered(client,row.users_id);
         return row;
       });
       return reply.code(201).send(await authSession(app,user,auth.platformEnabled?db:undefined));

@@ -3,7 +3,7 @@ export class ResearchError extends Error {
 }
 export type SearchResult = { url: string; title: string; snippet: string };
 export type RetrievedPage = { url: string; title: string; text: string; truncated: boolean };
-export type Evidence = { source_id: string; title: string | null; url: string | null; excerpt: string; source_type: string; content_kind?: string };
+export type Evidence = { source_id: string; title: string | null; url: string | null; excerpt: string; source_type: string; content_kind?: string; collection_limited?: boolean | null };
 export type FindingDraft = {
   finding_type: 'claim' | 'positive_signal' | 'risk_signal' | 'missing_information' | 'recommendation';
   category: string; title: string; explanation: string; confidence: number | null;
@@ -20,6 +20,7 @@ export type Assignment = {
   model_config: Record<string, unknown>; config_override: Record<string, unknown>;
 };
 export interface ResearchAdapters {
+  specialist?: import('./specialist-collection.js').SpecialistAdapter;
   search(query: string, maxResults: number, secretRef: string | null): Promise<SearchResult[]>;
   fetchPage(url: string): Promise<RetrievedPage>;
   extractPdf(data: Buffer): Promise<{ text: string; pages: number; truncated: boolean }>;

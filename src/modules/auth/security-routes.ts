@@ -19,8 +19,8 @@ export async function securityRoutes(app: FastifyInstance, db: Database, access:
       AND authenticated_at>now()-interval '5 minutes' AND expires_at>now()`, [request.principal!.users_id, digest(request.user.jti ?? '')]);
     if (!found.rowCount) throw new ApiError(403, 'recent_login_required', 'Sign in again before changing account security');
   };
-  app.get('/v1/auth/sessions', { onRequest: authenticated }, async request => ({ sessions: (await db.query(`SELECT session_id,authenticated_at,expires_at,
-    jti_hash=$2 AS is_current FROM auth_sessions WHERE users_id=$1 AND revoked_at IS NULL AND expires_at>now()
+  app.get('/v1/auth/sessions', { onRequest: authenticated }, async request => ({ sessions: (await db.query(`SELECT session_id,authenticated_at,GREATEST(expires_at,browser_expires_at) AS expires_at,
+    jti_hash=$2 AS is_current FROM auth_sessions WHERE users_id=$1 AND revoked_at IS NULL AND (expires_at>now() OR browser_expires_at>now())
     ORDER BY authenticated_at DESC,session_id LIMIT 100`, [request.principal!.users_id, digest(request.user.jti ?? '')])).rows }));
   app.delete<{ Params: { id: string } }>('/v1/auth/sessions/:id', { onRequest: authenticated, schema: { params: params('id') } }, async (request, reply) => {
     const result = await db.query('UPDATE auth_sessions SET revoked_at=COALESCE(revoked_at,now()) WHERE users_id=$1 AND session_id=$2 RETURNING session_id', [request.principal!.users_id, request.params.id]);

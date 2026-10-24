@@ -8,9 +8,10 @@ export type TargetInput = {
   entity_type: typeof entityTypes[number]; canonical_name: string;
   target_role?: 'primary' | 'candidate' | 'comparison'; identifiers?: IdentifierInput[];
 };
-export type InvestigationInput = { urls?: string[]; media_ids?: string[]; targets?: TargetInput[] };
+export type InvestigationInput = { urls?: string[]; media_ids?: string[]; targets?: TargetInput[];
+  check_context?: 'business' | 'phone' | 'property' | 'job' | 'shopping' | 'freelance' | 'person' | 'social' | 'listing'; verification?: import('../research/specialist-types.js').VerificationInput };
 export type CreateInvestigation = {
-  investigation_type: InvestigationType; title?: string; user_prompt: string; input_data?: InvestigationInput;
+  expected_credit_cost?: number; investigation_type: InvestigationType; title?: string; user_prompt: string; input_data?: InvestigationInput;
 };
 export type Investigation = {
   investigation_id: string; user_id: string; investigation_type: InvestigationType;

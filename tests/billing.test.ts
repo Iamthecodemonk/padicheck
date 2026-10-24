@@ -54,6 +54,7 @@ test('Bachs adapter uses fixed sandbox origin, bounded calls and safe URLs/error
 test('billing checkout, verified inbox, one-time and subscription allowances',async t=>{
   const {db,postgres}=await testDatabase();
   await postgres.exec(await readFile(new URL('../db/migrations/003_billing.sql',import.meta.url),'utf8'));
+  await postgres.exec(await readFile(new URL('../db/migrations/008_billing_plans.sql',import.meta.url),'utf8'));
   const checkouts=new Map<string,Json>();const subscriptions=new Map<string,Json>();let creates=0;
   const provider:BillingProvider={
     async createCheckout(input){creates++;const id='chk_'+creates;checkouts.set(id,{...input,checkout_id:id,status:'open',payment_status:'requires_payment_method',amount:input.product_cart[0].pricing.amount,
@@ -161,6 +162,20 @@ test('billing checkout, verified inbox, one-time and subscription allowances',as
       assert.equal((await app.inject({method:'POST',url:`/v1/admin/billing/grants/${grant}/revoke`,headers,payload:{note:'Refund review'}})).statusCode,200);
       assert.equal((await app.inject({url:'/v1/billing/me',headers})).json().available_units,0);
       assert.ok(oneId&&recurringId);
+    });
+    await t.test('billing history is owner-scoped, paginated, currency-correct and deduplicates subscription invoices',async()=>{
+      assert.equal((await app.inject({url:'/v1/billing/history'})).statusCode,401);
+      const response=await app.inject({url:'/v1/billing/history?limit=20&offset=0',headers});assert.equal(response.statusCode,200,response.body);
+      const entries=response.json().entries;assert.equal(entries.length,3);
+      assert.equal(entries.filter((row:Json)=>row.kind==='invoice').length,1);
+      assert.equal(entries.find((row:Json)=>row.kind==='invoice').reference,'inv_first');
+      for(const row of entries){assert.equal(row.currency,'USD');assert.equal(Number(row.amount),10);assert.equal(row.status,'paid');assert.equal(row.users_id,undefined);assert.equal(row.offer_snapshot,undefined);assert.equal(row.checkout_url,undefined);}
+      assert.equal(response.headers['cache-control'],'no-store');
+      assert.deepEqual((await app.inject({url:'/v1/billing/history',headers:otherHeaders})).json().entries,[]);
+      const first=(await app.inject({url:'/v1/billing/history?limit=1&offset=0',headers})).json();
+      const second=(await app.inject({url:'/v1/billing/history?limit=1&offset=1',headers})).json();assert.equal(first.has_more,true);assert.notEqual(first.entries[0].id,second.entries[0].id);
+      assert.equal((await app.inject({url:'/v1/billing/history?limit=0',headers})).statusCode,400);
+      const off=buildTestApp(loadConfig(env),db);try{const past=await off.inject({url:'/v1/billing/history',headers});assert.equal(past.statusCode,200,past.body);assert.equal(past.json().entries.length,3);}finally{await off.close();}
     });
   }finally{await app.close();await db.close();}
 });

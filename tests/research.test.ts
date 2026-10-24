@@ -1,3 +1,4 @@
+import { specialistAdapter } from '../src/adapters/specialist.js';
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import { randomUUID } from 'node:crypto';
@@ -37,16 +38,23 @@ test('registry-driven research, priority fallback, evidence, and cancellation', 
       VALUES ($1,$2,$2,'{"input_usd_per_million":1,"output_usd_per_million":2}'::jsonb) RETURNING model_id`, [provider, model])).rows[0]!.model_id;
     await db.query('INSERT INTO ai_task_assignments (task_id, agent_id, model_id, priority) VALUES ($1,$2,$3,$4)', [task, agent, created, index + 1]);
   }
-  let mode: 'ok' | 'fallback' | 'invalid' | 'repair' | 'insufficient' | 'cancel' | 'disable' = 'ok';
+  let mode: 'ok' | 'fallback' | 'invalid' | 'repair' | 'insufficient' | 'deep' | 'deep_partial' | 'deep_cancel' | 'cancel' | 'disable' = 'ok';
   let currentId = '';
   let modelCalls: string[] = [];
   let searchCalls = 0;
+  let searchQueries: string[] = [];
   const sourceText = 'The page lists a business contact address. This is a self-published statement, not independent verification.';
   const output = (evidence: Evidence[]) => ({ summary: 'The page lists contact information that needs independent confirmation.', limitations: ['Only the retrieved excerpts were considered.'],
     findings: [{ finding_type: 'claim', category: 'contact', title: 'Contact details are listed', explanation: 'A source lists contact details; identity and legitimacy remain unverified.', confidence: 0.6,
       evidence: [{ source_id: mode === 'invalid' || (mode === 'repair' && modelCalls.length === 1) ? randomUUID() : evidence[0]!.source_id, quote: evidence[0]!.excerpt.slice(0, 32), support_type: 'supports' }] }] });
   const adapters: ResearchAdapters = {
-    async search() { searchCalls++; return [{ url: 'https://search.example/result', title: 'Search result', snippet: 'A partial search result.' }]; },
+    async search(query) {
+      searchCalls++; searchQueries.push(query);
+      if (mode === 'deep_partial' && searchQueries.length === 2) throw new ResearchError('provider_unavailable');
+      if (mode === 'deep_cancel') await db.query("UPDATE investigations SET status='cancelled',completed_at=now() WHERE investigation_id=$1", [currentId]);
+      if (mode.startsWith('deep')) return Array.from({length: 3}, (_, index) => ({ url: 'https://query' + searchQueries.length + '-source' + index + '.example/page', title: 'Distinct source', snippet: 'A partial excerpt.' }));
+      return [{ url: 'https://search.example/result', title: 'Search result', snippet: 'A partial search result.' }];
+    },
     async fetchPage(url) { return { url, title: 'Public page', text: sourceText, truncated: false }; },
     async downloadDocument() { return Buffer.from('%PDF-fixture'); },
     async extractPdf() { return { text: 'The contract requires an upfront processing fee before work begins.', pages: 1, truncated: false }; },
@@ -61,7 +69,7 @@ test('registry-driven research, priority fallback, evidence, and cancellation', 
   async function request() {
     const created = await createInvestigation(db, ownerId, { investigation_type: 'web_analysis', user_prompt: 'Assess the submitted company references', input_data: { urls: ['https://submitted.example/'] } });
     currentId = created.investigation.investigation_id;
-    modelCalls = [];
+    modelCalls = []; searchQueries = [];
     assert.equal((await collectSubmittedSources(db, currentId)).outcome, 'collected');
     return currentId;
   }
@@ -98,6 +106,24 @@ test('registry-driven research, priority fallback, evidence, and cancellation', 
       assert.equal(runs.rows.length, 2);
       assert.ok(runs.rows.some(run => run.model_name === 'fixture-primary' && run.status === 'failed' && run.error_code === 'provider_request_failed'));
       assert.ok(runs.rows.some(run => run.model_name === 'fixture-fallback' && run.status === 'succeeded'));
+    });
+    await t.test('disabled specialist checks integrate with research without paid HTTP or false verification', async () => {
+      mode = 'ok';
+      const created = await createInvestigation(db, ownerId, { investigation_type: 'company_research', user_prompt: 'Research Example Ltd',
+        input_data: { check_context: 'business', verification: { business_name: 'Example Ltd', registration_number: 'RC123456', country_code: 'NG' } } });
+      currentId = created.investigation.investigation_id;
+      await collectSubmittedSources(db, currentId);
+      const withChecks = { ...adapters, specialist: specialistAdapter({}, async () => { throw new Error('Unexpected paid request'); }) };
+      assert.equal((await runResearch(db, currentId, withChecks)).outcome, 'completed');
+      const detail = await app.inject({ method: 'GET', url: '/v1/investigations/' + currentId, headers: { authorization: 'Bearer ' + token } });
+      assert.equal(detail.statusCode, 200, detail.body);
+      assert.equal(detail.json().specialist_checks[0].status, 'not_configured');
+      assert.equal(detail.json().specialist_checks[0].checked_at, null);
+      const notes = (await db.query(`SELECT s.excerpt FROM sources s JOIN investigation_sources l ON l.source_id=s.source_id WHERE l.investigation_id=$1 AND s.source_type='external_api'`, [currentId])).rows;
+      assert.equal(notes.length, 1); assert.equal(notes[0]!.excerpt, null);
+      const mismatch = await app.inject({ method: 'POST', url: '/v1/investigations', headers: { authorization: 'Bearer ' + token },
+        payload: { investigation_type: 'company_research', user_prompt: 'Conflicting context', input_data: { check_context: 'phone' } } });
+      assert.equal(mismatch.statusCode, 400);
     });
     await t.test('foreign or hallucinated source IDs never produce findings', async () => {
       mode = 'invalid'; const id = await request();
@@ -148,6 +174,30 @@ test('registry-driven research, priority fallback, evidence, and cancellation', 
       await db.query('UPDATE ai_task_types SET is_enabled = false WHERE task_id = $1', [task]);
       assert.equal((await runResearch(db, next, adapters)).error_code, 'analysis_not_configured');
       await db.query('UPDATE ai_task_types SET is_enabled = true WHERE task_id = $1', [task]);
+    });
+    await t.test('deep search broadens sources, tolerates one failed query and checks cancellation between queries', async () => {
+      await db.query(`UPDATE ai_tools SET tool_config='{"max_results":3,"max_queries":3,"max_sources":10,"max_seconds":120}'::jsonb WHERE tool_code='ultrasearch_search'`);
+      try {
+        mode = 'deep'; const id = await request();
+        assert.equal((await runResearch(db, id, adapters)).outcome, 'completed');
+        assert.equal(searchQueries.length, 3);
+        assert.equal(new Set(searchQueries).size, 3);
+        assert.equal((await db.query('SELECT 1 FROM investigation_sources WHERE investigation_id=$1', [id])).rowCount, 10);
+        const meta = (await db.query(`SELECT s.metadata FROM sources s JOIN investigation_sources l ON l.source_id=s.source_id WHERE l.investigation_id=$1 AND l.discovery_method='web_search' LIMIT 1`, [id])).rows[0]!.metadata;
+        assert.equal(meta.search_queries_attempted, 3);
+        assert.equal(meta.search_queries_succeeded, 3);
+        mode = 'deep_partial'; const partial = await request();
+        assert.equal((await runResearch(db, partial, adapters)).outcome, 'completed');
+        assert.equal(searchQueries.length, 3);
+        const partialMeta = (await db.query(`SELECT s.metadata FROM sources s JOIN investigation_sources l ON l.source_id=s.source_id WHERE l.investigation_id=$1 AND l.discovery_method='web_search' LIMIT 1`, [partial])).rows[0]!.metadata;
+        assert.equal(partialMeta.search_partial_failure, true);
+        assert.equal(partialMeta.search_queries_succeeded, 2);
+        mode = 'deep_cancel'; const cancelled = await request();
+        assert.equal((await runResearch(db, cancelled, adapters)).outcome, 'ignored');
+        assert.equal(searchQueries.length, 1);
+        assert.equal(modelCalls.length, 0);
+        assert.equal((await db.query(`SELECT 1 FROM investigation_sources WHERE investigation_id=$1 AND discovery_method='web_search'`, [cancelled])).rowCount, 0);
+      } finally { await db.query("UPDATE ai_tools SET tool_config='{}'::jsonb WHERE tool_code='ultrasearch_search'"); }
     });
     await t.test('contract analysis extracts authenticated documents without sending contract text to search', async () => {
       mode = 'ok';

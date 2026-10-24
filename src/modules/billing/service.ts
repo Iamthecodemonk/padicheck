@@ -96,9 +96,9 @@ async function syncCheckout(client:SqlExecutor,provider:BillingProvider,checkout
     await client.query(`UPDATE billing_checkouts SET status=CASE WHEN status='refunded' THEN status ELSE 'paid' END,
       paid_at=COALESCE(paid_at,now()),provider_customer_id=$2 WHERE billing_checkout_id=$1`,[row.billing_checkout_id,customerId]);
     if(row.offer_snapshot.billing_mode==='one_time'&&row.status!=='refunded'){
-      await client.query(`INSERT INTO billing_grants (users_id,environment,billing_checkout_id,source_type,provider_source_id,units_granted,valid_from)
-        VALUES ($1,$2,$3,'checkout',$4,$5,now()) ON CONFLICT (environment,source_type,provider_source_id) DO NOTHING`,
-      [row.users_id,environment,row.billing_checkout_id,checkoutId,row.offer_snapshot.investigation_units]);
+      await client.query(`INSERT INTO billing_grants (users_id,environment,billing_checkout_id,source_type,provider_source_id,units_granted,valid_from,expires_at)
+        VALUES ($1,$2,$3,'checkout',$4,$5,now(),CASE WHEN $6::integer IS NULL THEN NULL ELSE now()+$6*interval '1 day' END) ON CONFLICT (environment,source_type,provider_source_id) DO NOTHING`,
+      [row.users_id,environment,row.billing_checkout_id,checkoutId,row.offer_snapshot.investigation_units,[30,365].includes(row.offer_snapshot.validity_days??0)?row.offer_snapshot.validity_days:null]);
     }
   }else if(['expired','cancelled'].includes(value.status)){
     await client.query("UPDATE billing_checkouts SET status='expired' WHERE billing_checkout_id=$1 AND status NOT IN ('paid','refunded')",[row.billing_checkout_id]);

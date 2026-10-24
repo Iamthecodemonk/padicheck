@@ -21,6 +21,12 @@ function response(url: string, method: string): { status: number; schema?: objec
     media_storage: string, research: string, email_signup: string, google_signin: string, billing: string, platform_extensions: string }) };
   if (url === '/v1/webhooks/bachs') return {status:202,schema:envelope({received:boolean})};
   if (url === '/v1/billing/offers') return {status:200,schema:envelope({enabled:boolean,offers:array})};
+  if (url === '/v1/credits/policy'||url === '/v1/admin/credits/policy')return {status:200,schema:envelope({enabled:boolean,policy:{...record,nullable:true}})};
+  if(url === '/v1/credits/me')return {status:200,schema:envelope({enabled:boolean,available_units:{type:'integer'},transactions:array})};
+  if(url === '/v1/auth/session')return method==='DELETE'?{status:204}:{status:200,schema:session};
+  if(url === '/v1/billing/plans'||url === '/v1/admin/billing/plans')return {status:method==='POST'?201:200,schema:envelope(method==='POST'?{plan:record}:{plans:array,billing_enabled:boolean})};
+  if(url.startsWith('/v1/admin/billing/plans/'))return {status:200,schema:envelope(url.endsWith('/enable-checkout')?{enabled:boolean,manual_renewal:boolean}:{plan:record})};
+  if(url === '/v1/billing/history')return {status:200,schema:envelope({entries:array,has_more:boolean})};
   if (url === '/v1/billing/me') return {status:200,schema:envelope({enabled:boolean,available_units:{type:'integer'},subscriptions:array})};
   if (url === '/v1/billing/portal') return {status:200,schema:envelope({url:{type:'string',format:'uri'}})};
   if (url.startsWith('/v1/billing/checkouts')) return {status:method==='POST'?201:200,schema:envelope({checkout:record})};
@@ -65,7 +71,7 @@ function response(url: string, method: string): { status: number; schema?: objec
     const list = method === 'GET' && url === '/v1/investigations';
     return { status: method === 'POST' && !url.endsWith('/cancel') ? 202 : 200,
       schema: envelope(list ? { investigations: array, next_cursor: { type: 'string', nullable: true } } :
-        { investigation: record, dispatch: string, capabilities: record, targets: array, source_collection_complete: boolean,
+        { investigation: record, dispatch: string, capabilities: record, targets: array, source_collection_complete: boolean, specialist_checks: array,
           limitations: { type: 'array', items: string } }) };
   }
   const resource = url.includes('/media') ? 'media' : url.includes('/verifications') ? 'verification' :
@@ -119,7 +125,10 @@ const notes: Record<string, string> = {
   '/v1/auth/google/link': 'Link a Google ID token using an action=link nonce bound to your account. Its email must match your verified account email.',
   '/v1/shared-investigations/resolve': 'Redeem a share token in the JSON body. No JWT is required. Returns a limited completed-result view; expired, revoked or invalid links return 404. Treat tokens and result content as sensitive.',
   '/v1/billing/offers': 'Public enabled catalog. Returns enabled=false and no offers when BILLING_ENABLED is false. Amounts are decimal currency strings, not minor units.',
-  '/v1/billing/me': 'Owned balance and subscription state. Paid invoices grant period units; a new investigation consumes one. Returns enabled=false when billing is disabled.',
+  '/v1/credits/policy': 'Public check costs when credit enforcement is enabled. Property has its own price. Prices are authoritative at submission.',
+  '/v1/admin/credits/policy': 'Superadmin-only welcome bonus and per-type costs. PUT requires the current revision; changes are audited. Zero disables a bonus or makes a check free.',
+  '/v1/credits/me': 'Owned credit balance and latest 100 grant/debit transactions. Includes welcome and paid credits. Never awards credits on read.',
+  '/v1/billing/me': 'Owned balance and subscription state. Credit enforcement can operate independently of paid checkouts. Legacy billing-only mode consumes one unit per investigation.',
   '/v1/billing/checkouts': 'Requires JWT and verified email. Send offer_key and a UUID request_key. Reuse the same key for retries; using it for another offer returns 409. The server controls pricing and redirect URLs. A 201 checkout does not prove payment. Save billing_checkout_id before redirecting to checkout_url.',
   '/v1/billing/checkouts/:id': 'Owned checkout status; this read never grants units. Poll after redirect while webhook processing is pending. Use the local billing_checkout_id, not the provider checkout_id appended to the redirect URL.',
   '/v1/billing/portal': 'Send an owned local billing_subscription_id to create a fresh provider customer-portal URL. The URL is a session credential; do not log or persist it.',
@@ -153,7 +162,7 @@ const summaries: Record<string, string> = {
 function documentSchema(schema: FastifySchema = {}, url: string, method: string, maxBytes: number): FastifySchema {
   if (url.startsWith('/docs')) return { ...schema, hide: true };
   const publicRoute = ['/health','/ready','/v1/auth/register','/v1/auth/register/verify','/v1/auth/login',
-    '/v1/auth/google','/v1/auth/google/challenge','/v1/auth/mfa/verify','/v1/shared-investigations/resolve','/v1/billing/offers','/v1/webhooks/bachs'].includes(url) || url.startsWith('/v1/directory');
+    '/v1/auth/session','/v1/auth/google','/v1/auth/google/challenge','/v1/auth/mfa/verify','/v1/shared-investigations/resolve','/v1/billing/offers','/v1/billing/plans','/v1/credits/policy','/v1/webhooks/bachs'].includes(url) || url.startsWith('/v1/directory');
   const tag = url.includes('/billing')||url.includes('/webhooks/bachs')?'Billing':url.startsWith('/v1/auth') ? 'Authentication' : url.includes('/admin/ai/') ? 'AI registry' :
     url.includes('share') ? 'Sharing' : url.includes('/investigations') ? 'Investigations' : url.includes('/media') ? 'Media' :
     url.includes('/verifications') ? 'Verifications' : url.includes('/disputes') ? 'Disputes' : url.includes('/reports') ? 'Reports' :

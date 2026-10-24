@@ -37,7 +37,7 @@ try {
       for (const code of ['ultrasearch_search', 'public_url_fetch', 'pdf_extract']) {
         const tool = (await client.query(`INSERT INTO ai_tools (tool_code,display_name,tool_type,tool_config,credential_secret_ref)
           VALUES ($1,$1,$2,$3::jsonb,$4) RETURNING tool_id`, [code, code === 'ultrasearch_search' ? 'external_api' : 'internal',
-          JSON.stringify(code === 'ultrasearch_search' ? { max_results: 5 } : {}),
+          JSON.stringify(code === 'ultrasearch_search' ? { max_results: 5, max_queries: 6, max_sources: 25, max_seconds: 180 } : {}),
           code === 'ultrasearch_search' && process.env.ULTRASEARCH_API_KEY ? 'env:ULTRASEARCH_API_KEY' : null])).rows[0]!.tool_id;
         await client.query('INSERT INTO ai_agent_tools (agent_id,tool_id) VALUES ($1,$2)', [agent, tool]);
       }
