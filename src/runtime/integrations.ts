@@ -35,7 +35,8 @@ export function integrationProbes(config:AppConfig,db:Database,env:NodeJS.Proces
     async ultrasearch(){
       // A synthetic public query only: never send application records or enable
       // the upstream crawler/AI overview as part of a connectivity probe.
-      await ultraSearch(config.ultraSearchUrl!,env)('example.com',1,env.ULTRASEARCH_API_KEY?'env:ULTRASEARCH_API_KEY':null);
+      const results=await ultraSearch(config.ultraSearchUrl!,env)('PostgreSQL official documentation',1,env.ULTRASEARCH_API_KEY?'env:ULTRASEARCH_API_KEY':null);
+      if(!results.length)throw new Error('Search probe returned no usable source URLs');
     },
     async gemini(){
       const result=await providerJson('https://generativelanguage.googleapis.com/v1beta/models?pageSize=1',{

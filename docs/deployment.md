@@ -185,7 +185,7 @@ check. The command has an overall 180-second bound.
 | Database | Schema-column readiness queries; no application records changed |
 | Redis | Shared revocation PING and BullMQ queue-count access; initializes queue metadata if needed, but submits no jobs or revocations |
 | Cloudinary | Authenticated `GET /ping`; no uploads, deletions or delivery URLs |
-| UltraSearch | One fixed `example.com` search, `limit=1`, `ai_mode=none`, `content=false`; no user records or document content sent |
+| UltraSearch | One fixed `PostgreSQL official documentation` search, `limit=1`, `ai_mode=none`, `content=false`; requires a usable absolute source URL; no user records or document content sent |
 | Gemini | `models.list` metadata; when research is enabled, `models.get` for registered routes and generation-method checks; no inference |
 | Registry | Current enabled routes, tool access and expected secret references |
 | SMTP | TLS connection/authentication verification; no message is sent |
